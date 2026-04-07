@@ -1,0 +1,15 @@
+# Cloudflare Wrangler local state / cache
+.wrangler/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env
+.env
+.env.local
+
+# macOS
+.DS_Store

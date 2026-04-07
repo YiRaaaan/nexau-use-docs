@@ -1,0 +1,50 @@
+type: agent
+name: nl2sql_agent
+description: NL2SQL agent over the North Nova enterprise SQLite mirror.
+max_context_tokens: 200000
+max_iterations: 50
+
+system_prompt: ./system_prompt.md
+system_prompt_type: jinja
+tool_call_mode: structured
+
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  api_type: openai_chat_completion
+  temperature: 0.2
+  max_tokens: 4096
+  stream: true
+
+tools:
+  # SELECT executor — same name/schema/return shape as NexEvo's ChatBI tool.
+  - name: execute_sql
+    yaml_path: ./tools/ExecuteSQL.tool.yaml
+    binding: nl2sql_agent.bindings:execute_sql
+
+  # Built-in planning scratchpad for multi-table queries.
+  - name: todo_write
+    yaml_path: ./tools/TodoWrite.tool.yaml
+    binding: nexau.archs.tool.builtin.todo_write:todo_write
+
+# One skill per table — gives the model authoritative knowledge of the
+# schema, business semantics, common values, and example queries.
+skills:
+  - ./skills/enterprise_basic
+  - ./skills/enterprise_contact
+  - ./skills/enterprise_financing
+  - ./skills/enterprise_product
+  - ./skills/industry
+  - ./skills/industry_enterprise
+  - ./skills/users
+
+middlewares:
+  # Truncate huge query results so a single SELECT * can't blow the context.
+  - import: nexau.archs.main_sub.execution.middleware.long_tool_output:LongToolOutputMiddleware
+    params:
+      max_output_chars: 8000
+      head_lines: 30
+      tail_lines: 10
+      head_chars: 4000
+      tail_chars: 2000

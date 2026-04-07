@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>NexAU · 从 0 到 1 构建一个 Agent</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="NexAU 框架教程 —— 从 0 到 1 构建一个 NL2SQL Agent">
+
+  <!-- docsify 主题（themeable，可用 CSS 变量定制） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple.css">
+
+  <!-- 自定义样式：模仿 deepagents 文档的视觉风格 -->
+  <style>
+    :root {
+      --theme-color: #6e5ef2;
+      --theme-color-secondary: #8b7df5;
+
+      --base-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --base-font-size: 15px;
+      --base-line-height: 1.7;
+      --base-color: #1f2328;
+      --base-background-color: #ffffff;
+
+      --content-max-width: 920px;
+
+      --sidebar-width: 280px;
+      --sidebar-background: #fafbfc;
+      --sidebar-border-color: #eaecef;
+      --sidebar-name-color: var(--theme-color);
+      --sidebar-name-font-weight: 600;
+      --sidebar-nav-link-color: #57606a;
+      --sidebar-nav-link-color--active: var(--theme-color);
+      --sidebar-nav-link-font-weight--active: 600;
+      --sidebar-nav-link-background-color--active: rgba(110, 94, 242, 0.08);
+      --sidebar-nav-link-border-color--active: var(--theme-color);
+      --sidebar-nav-link-padding: 6px 16px;
+      --sidebar-nav-pagelink-background-image--active: none;
+
+      --heading-h1-font-size: 2rem;
+      --heading-h1-font-weight: 700;
+      --heading-h2-font-size: 1.5rem;
+      --heading-h2-font-weight: 600;
+      --heading-h2-margin: 2.4rem 0 1rem;
+      --heading-h2-border-style: none;
+      --heading-h3-font-size: 1.2rem;
+      --heading-h3-font-weight: 600;
+
+      --link-color: var(--theme-color);
+      --link-text-decoration: none;
+      --link-text-decoration--hover: underline;
+
+      --code-font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code",
+        "Source Code Pro", monospace;
+      --code-font-size: 0.92em;
+      --code-inline-background: #f3f3f6;
+      --code-inline-color: #6e5ef2;
+      --code-block-background: #1e1e2e;
+      --code-block-border-radius: 8px;
+
+      --blockquote-background: #f7f6ff;
+      --blockquote-border-color: var(--theme-color);
+      --blockquote-border-width: 0 0 0 4px;
+      --blockquote-padding: 12px 16px;
+      --blockquote-quotes-display: none;
+
+      --table-cell-border-color: #eaecef;
+      --table-head-background: #f6f8fa;
+      --table-head-font-weight: 600;
+
+      --notice-padding: 14px 18px;
+      --notice-border-radius: 6px;
+    }
+
+    /* 暗色模式 */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --base-color: #e6edf3;
+        --base-background-color: #0d1117;
+        --sidebar-background: #161b22;
+        --sidebar-border-color: #21262d;
+        --sidebar-nav-link-color: #8b949e;
+        --sidebar-nav-link-background-color--active: rgba(110, 94, 242, 0.15);
+        --code-inline-background: #1c1f26;
+        --code-inline-color: #b1a4ff;
+        --table-head-background: #161b22;
+        --table-cell-border-color: #21262d;
+        --blockquote-background: #161b22;
+      }
+    }
+
+    /* 一些细节 */
+    body {
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .markdown-section {
+      padding: 40px 60px;
+    }
+
+    .markdown-section h1 {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .markdown-section h2 {
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--sidebar-border-color);
+    }
+
+    .markdown-section pre {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .markdown-section pre > code {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .markdown-section table {
+      display: table;
+      width: 100%;
+    }
+
+    /* 顶部章节路标 */
+    .app-name-link {
+      font-size: 1.05rem !important;
+      letter-spacing: -0.01em;
+    }
+
+    .sidebar-nav > ul > li > p {
+      margin: 16px 0 4px;
+      padding: 0 16px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+    }
+
+    /* "复制" 按钮稍微淡一点 */
+    .docsify-copy-code-button {
+      background: rgba(255,255,255,0.08) !important;
+      font-size: 11px !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">加载中…</div>
+
+  <script>
+    window.$docsify = {
+      name: 'NexAU 教程',
+      repo: 'https://github.com/nex-agi/NexAU',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      maxLevel: 4,
+      homepage: 'zh/01-bash-nl2sql.md',
+      relativePath: false,
+      mergeNavbar: true,
+
+      // 让所有子目录里的 _sidebar.md 请求都回退到根目录的那一份
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md',
+      },
+
+      // 搜索
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: '🔍 搜索...',
+        noData: '没有找到结果',
+        depth: 4,
+      },
+
+      // 复制按钮
+      copyCode: {
+        buttonText: '复制',
+        errorText: '失败',
+        successText: '已复制',
+      },
+
+      // 分页导航
+      pagination: {
+        previousText: '上一章',
+        nextText: '下一章',
+        crossChapter: true,
+        crossChapterText: true,
+      },
+    };
+  </script>
+
+  <!-- docsify 核心 -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-themeable@0"></script>
+
+  <!-- 插件 -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+
+  <!-- 代码高亮：常用语言 -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-markdown.min.js"></script>
+</body>
+</html>
