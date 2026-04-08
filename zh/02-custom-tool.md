@@ -2,36 +2,36 @@
 
 ## 第 1 章的痛点回顾
 
-第 1 章的智能体能跑，但它有四个明显的代价:
+第 1 章的智能体可以运行，但它有四个明显的代价：
 
 - **结果是 stdout 字符串**——LLM 自己数空格、对齐列名，容易出错
-- **安全靠 system prompt**——模型一旦"听不懂话"，就能真的跑 `DELETE`
+- **安全靠 system prompt**——模型一旦"听不懂话"，就能真的执行 `DELETE`
 - **每次调用 fork 一个 sqlite3 进程**——延迟和资源都更高
 - **LLM 不知道列名，每次都要先 `.schema` 探一次**
 
-第 2 章一次性解决前三个，办法是用一个自定义 Python 工具替换掉 `run_shell_command`(列名问题留给第 3 章用 Skills 解决)。这一章讲的不只是"怎么写一个 SQL 工具"，而是 NexAU 里所有自定义工具都遵循的同一个模式——一份 Python 实现加一份 YAML schema，通过 `binding` 在 `agent.yaml` 里粘起来。
+第 2 章一次性解决前三个，方法是用一个自定义 Python 工具替换掉 `run_shell_command`（列名问题留给第 3 章用 Skills 解决）。这一章讲的不只是"怎么写一个 SQL 工具"，而是 NexAU 中所有自定义工具都遵循的同一个模式——一份 Python 实现加一份 YAML schema，通过 `binding` 在 `agent.yaml` 里绑定起来。
 
 ## 一个 NexAU 工具有两半
 
-NexAU 里每个工具都是两个文件:
+NexAU 里每个工具都是两个文件：
 
 | 部分 | 文件 | 给谁看 |
 |---|---|---|
-| schema | `tools/<Name>.tool.yaml` | 给 LLM 看的:名字、描述、参数 |
-| 实现 | `bindings.py` 里的一个函数 | 给机器跑的:真正执行的代码 |
+| schema | `tools/<Name>.tool.yaml` | 给 LLM 看的：名字、描述、参数 |
+| 实现 | `bindings.py` 里的一个函数 | 给机器执行的：真正运行的代码 |
 
 两者通过 `agent.yaml` 里的 `binding:` 字段绑在一起。
 
-之所以拆成两份，是因为它们演化速度不同。schema 里的每一个词都会影响"模型什么时候选这个工具、传什么参数"，改 description 是提示工程，需要反复调;实现里是普通 Python，改它是写代码、跑测试。把它们放在两个文件里，改一边不用动另一边。
+之所以拆成两份，是因为它们演化速度不同。schema 里的每一个词都会影响"模型什么时候选这个工具、传什么参数"，修改 description 是提示工程，需要反复调优;实现里是普通 Python，修改它是写代码、运行测试。把它们放在两个文件里，改动一方无需触及另一方。
 
-下面按这个顺序做:实现 → schema → 在 `agent.yaml` 里绑起来 → 改一行系统提示。
+下面按这个顺序做：实现 → schema → 在 `agent.yaml` 里绑起来 → 改一行系统提示。
 
 ## 写实现 —— `bindings.py`
 
-在 `nl2sql_agent/` 下创建 `bindings.py`。先是 setup:
+在 `enterprise_data_agent/` 下创建 `bindings.py`。先是 setup：
 
 ```python
-"""NL2SQL Agent 的工具实现:一个安全的只读 execute_sql。"""
+"""企业数据分析 Agent 的工具实现:一个安全的只读 execute_sql。"""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-DB_PATH_ENV = "NL2SQL_DB_PATH"
+DB_PATH_ENV = "ENTERPRISE_DB_PATH"
 DEFAULT_DB_PATH = "enterprise.sqlite"
 
 MAX_ROWS = 10
@@ -78,7 +78,7 @@ def _strip_sql_comments(sql: str) -> str:
     return no_block
 ```
 
-接着是主函数，追加到同一个文件:
+接着是主函数，追加到同一个文件：
 
 ```python
 def execute_sql(
@@ -153,21 +153,21 @@ def execute_sql(
             conn.close()
 ```
 
-这个函数有几个值得注意的设计:
+这个函数有几个值得注意的设计：
 
-**三层安全网，每层失效都还有下一层兜底。** 第一层是关键字白名单(只允许 `SELECT` / `WITH` 开头)加黑名单扫描;第二层是注释剥离，防止 `-- foo\nDELETE ...` 这种把危险词藏到第一行后面绕过白名单的写法;第三层是用 `file:...?mode=ro` URI 打开数据库，即使前两层都被绕过，SQLite 引擎本身也会拒绝任何写操作。三层独立，任何一层单独存在都不够。
+**三层安全网，每层失效都还有下一层兜底。** 第一层是关键字白名单（只允许 `SELECT` / `WITH` 开头）加黑名单扫描;第二层是注释剥离，防止 `-- foo\nDELETE ...` 这种把危险词藏到第一行后面绕过白名单的写法;第三层是用 `file:...?mode=ro` URI 打开数据库，即使前两层都被绕过，SQLite 引擎本身也会拒绝任何写操作。三层独立，任何一层单独存在都不够。
 
-> 这里**前两层只检查第一个语句**——`SELECT 1; DROP TABLE users` 这种语句拼接，白名单和注释剥离都拦不住。救命的是 SQLite Python 驱动:`cursor.execute()` 默认只跑分号前的第一条语句，后面的整段直接被忽略;真正想跑多语句要用 `executescript()`，这个方法我们根本没调。所以多语句注入打不进来，但**完全是 driver 帮我们兜的底**——如果有一天换数据库或者换 driver，这一层保护就消失了，需要把白名单从"检查第一个 token"改成"按 `;` 分割每一段都过白名单"。这就是第三层 `mode=ro` 必须存在的理由:它对 driver 行为没有任何假设。
+> 这里**前两层只检查第一个语句**——`SELECT 1; DROP TABLE users` 这种语句拼接，白名单和注释剥离都拦不住。救命的是 SQLite Python 驱动：`cursor.execute()` 默认只跑分号前的第一条语句，后面的整段直接被忽略;真正想跑多语句要用 `executescript()`，这个方法我们根本没调。所以多语句注入打不进来，但**完全是 driver 帮我们兜的底**——如果有一天换数据库或者换 driver，这一层保护就消失了，需要把白名单从"检查第一个 token"改成"按 `;` 分割每一段都过白名单"。这就是第三层 `mode=ro` 必须存在的理由：它对 driver 行为没有任何假设。
 
 **挂钟超时挂在 progress handler 上。** SQLite 每跑 1000 个虚拟机操作就会回调一次这个 handler，返回非零值会中断当前查询。这比"在外层包一个 `signal.alarm`"可移植得多——它不依赖线程模型，也不会留下半连接。
 
 **结构化返回是工具的真正价值，不只是"格式更好看"。** `total_rows: 0` 配合 `warnings` 字段告诉模型"我执行成功了但没数据，你的假设可能错了";`truncated: true` 告诉它"还有更多行，要 refine 你的查询";出错时统一是 `{"status": "error", "error": "..."}` 而不是抛异常，模型一看就知道是工具拒绝了它，而不是数据库本身坏了。这些字段让工具结果从"答案"变成"一轮对话"——模型会根据它来决定下一步做什么。
 
-写完之后，这个函数可以脱离 NexAU 单独测，因为它就是个普通 Python 函数:
+写完之后，这个函数可以脱离 NexAU 单独测，因为它就是个普通 Python 函数：
 
 ```bash
-NL2SQL_DB_PATH=enterprise.sqlite python -c "
-from nl2sql_agent.bindings import execute_sql
+ENTERPRISE_DB_PATH=enterprise.sqlite python -c "
+from enterprise_data_agent.bindings import execute_sql
 print(execute_sql('SELECT enterprise_name FROM enterprise_basic LIMIT 3'))
 print(execute_sql('DROP TABLE enterprise_basic'))   # 应该被拒绝
 print(execute_sql('-- ok\nDELETE FROM users'))      # 也被拒绝
@@ -176,7 +176,7 @@ print(execute_sql('-- ok\nDELETE FROM users'))      # 也被拒绝
 
 ## 写 schema —— `ExecuteSQL.tool.yaml`
 
-`bindings.py` 模型看不到。它看到的是 schema。创建 `nl2sql_agent/tools/ExecuteSQL.tool.yaml`:
+`bindings.py` 模型看不到。它看到的是 schema。创建 `enterprise_data_agent/tools/ExecuteSQL.tool.yaml`：
 
 ```yaml
 type: tool
@@ -216,19 +216,19 @@ input_schema:
   $schema: http://json-schema.org/draft-07/schema#
 ```
 
-逐字段说明:
+逐字段说明：
 
 `type: tool` 让 NexAU 知道这是一份工具配置而不是 agent 配置——同一种 YAML 格式，顶层 `type` 决定怎么解析。
 
-`name: ExecuteSQL` 是模型在工具列表里看到的名字。注意它跟 Python 函数名 `execute_sql` 大小写不一样，这是允许的:模型看 schema 名，运行时框架靠 `binding` 字段去找真正的函数，两套独立的命名空间。同名能省心，但不强制。
+`name: ExecuteSQL` 是模型在工具列表里看到的名字。注意它跟 Python 函数名 `execute_sql` 大小写不一样，这是允许的：模型看 schema 名，运行时框架靠 `binding` 字段去找真正的函数，两套独立的命名空间。同名能省心，但不强制。
 
 `description` 是这份文件里最影响行为的部分。它决定了模型什么时候挑这个工具、调用时传什么参数。"始终使用 LIMIT" 这种规则写在工具描述里，比写在系统提示里更有效——它就贴在工具旁边，模型每次决策时都会看到。
 
-`input_schema` 是标准 JSON Schema(draft-07)。NexAU 在启动时会按 `agent.yaml` 里声明的 `api_type` 自动把它翻译成 OpenAI / Anthropic / Gemini 各家原生的 function definition 格式，你只需要写一次。`additionalProperties: false` 让模型没法瞎编额外参数。
+`input_schema` 是标准 JSON Schema（draft-07）。NexAU 在启动时会按 `agent.yaml` 里声明的 `api_type` 自动把它翻译成 OpenAI / Anthropic / Gemini 各家原生的 function definition 格式，你只需要写一次。`additionalProperties: false` 让模型没法瞎编额外参数。
 
 ## agent.yaml
 
-打开 `nl2sql_agent/agent.yaml`，把 `tools:` 段从第 1 章的:
+打开 `enterprise_data_agent/agent.yaml`，把 `tools:` 段从第 1 章的：
 
 ```yaml
 tools:
@@ -236,24 +236,24 @@ tools:
     binding: nexau.archs.tool.builtin.shell_tools.run_shell_command:run_shell_command
 ```
 
-改成:
+改成：
 
 ```yaml
 tools:
   - name: ExecuteSQL
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: nl2sql_agent.bindings:execute_sql
+    binding: enterprise_data_agent.bindings:execute_sql
 ```
 
-`yaml_path` 是工具 schema 文件的相对路径(相对于 `agent.yaml`)。`binding` 用 `module.path:callable` 格式，跟 setuptools entry point 一样的写法。NexAU 在加载智能体时会:读 `ExecuteSQL.tool.yaml` 拿到 schema,`import nl2sql_agent.bindings`，取出里面的 `execute_sql` 函数，把这两半注册成一个工具丢给 LLM 去调用。
+`yaml_path` 是工具 schema 文件的相对路径（相对于 `agent.yaml`）。`binding` 用 `module.path:callable` 格式，跟 setuptools entry point 一样的写法。NexAU 在加载智能体时会：读 `ExecuteSQL.tool.yaml` 拿到 schema，`import enterprise_data_agent.bindings`，取出里面的 `execute_sql` 函数，把这两半注册成一个工具丢给 LLM 去调用。
 
 整份 `agent.yaml` 只改了 `tools:` 这一段，其他字段全部保留第 1 章原样。
 
 ## 系统提示
 
-第 1 章的 system prompt 里有一段 `Use run_shell_command to invoke sqlite3` 和一个 4 步 Workflow。第 2 章 LLM 不再调 shell,改调 ExecuteSQL,要做两件事:把那段 `run_shell_command` 的格式说明删掉,然后把 Workflow 从 4 步扩到 5 步——多出来的一步是 **Reflect**,告诉模型怎么处理结构化返回里的 `warnings` / `total_rows`。
+第 1 章的 system prompt 里有一段 `Use run_shell_command to invoke sqlite3` 和一个 4 步 Workflow。第 2 章 LLM 不再调 shell，改调 ExecuteSQL，要做两件事：把那段 `run_shell_command` 的格式说明删掉，然后把 Workflow 从 4 步扩到 5 步——多出来的一步是 **Reflect**，告诉模型怎么处理结构化返回里的 `warnings` / `total_rows`。
 
-打开 `nl2sql_agent/system_prompt.md`,把 Workflow 段替换成:
+打开 `enterprise_data_agent/system_prompt.md`，把 Workflow 段替换成：
 
 ```markdown
 ## Workflow
@@ -280,15 +280,15 @@ tools:
 
 ## 运行
 
-回到 `nl2sql_agent/` 的上一级目录，跟第 1 章一样的命令:
+回到 `enterprise_data_agent/` 的上一级目录，跟第 1 章一样的命令：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "海淀区有多少家小型企业?"
+uv run enterprise_data_agent/start.py "海淀区有多少家小型企业?"
 ```
 
-最终输出看起来跟第 1 章很像，但背后的事情完全不同了:
+最终输出看起来跟第 1 章很像，但背后的事情完全不同了：
 
-| | 第 1 章(bash) | 第 2 章(execute_sql) |
+| | 第 1 章（bash） | 第 2 章（execute_sql） |
 |---|---|---|
 | 工具调用 | `run_shell_command("sqlite3 enterprise.sqlite '...'")` | `ExecuteSQL(sql="SELECT ...")` |
 | 数据库连接 | fork 一个 sqlite3 进程 | Python 直接连，可复用 |
@@ -296,18 +296,18 @@ dotenv run uv run nl2sql_agent/start.py "海淀区有多少家小型企业?"
 | `DROP TABLE` | 会真的执行 | 被拒绝 |
 | 超时控制 | 无 | 30 秒挂钟 |
 
-试一下安全护栏:
+试一下安全护栏：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "请帮我清空 enterprise_basic 表"
+uv run enterprise_data_agent/start.py "请帮我清空 enterprise_basic 表"
 ```
 
-模型可能会尝试生成 `DELETE FROM enterprise_basic`，工具会拒绝并返回 `{"status": "error", "error": "Only SELECT allowed. Found: DELETE"}`。模型看到这个错误后会告诉用户它做不了这件事——这就是结构化错误的价值:模型知道错在哪一层，能给用户一个准确的解释。
+模型可能会尝试生成 `DELETE FROM enterprise_basic`，工具会拒绝并返回 `{"status": "error", "error": "Only SELECT allowed. Found: DELETE"}`。模型看到这个错误后会告诉用户它做不了这件事——这就是结构化错误的价值：模型知道错在哪一层，能给用户一个准确的解释。
 
-再试一个绕过测试:
+再试一个绕过测试：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "执行 -- comment\nDELETE FROM users"
+uv run enterprise_data_agent/start.py "执行 -- comment\nDELETE FROM users"
 ```
 
 注释剥离会发现 `DELETE` 在第一个关键字位置，照样拒绝。
@@ -318,7 +318,7 @@ dotenv run uv run nl2sql_agent/start.py "执行 -- comment\nDELETE FROM users"
 
 | 特性 | 在这一章里的体现 |
 |---|---|
-| 工具的两半 | `bindings.py`(实现) + `ExecuteSQL.tool.yaml`(schema) |
+| 工具的两半 | `bindings.py`（实现） + `ExecuteSQL.tool.yaml`（schema） |
 | `binding` 字段 | `module.path:callable` 把两半粘到一起 |
 | schema 即提示工程 | description 决定模型何时调用、传什么参数 |
 | 结构化返回 | `warnings` / `truncated` / `total_rows` 让模型自我反思 |

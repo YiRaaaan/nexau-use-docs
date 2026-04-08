@@ -1,11 +1,11 @@
-"""Python tool bindings for the NL2SQL agent.
+"""Python tool bindings for the enterprise data agent.
 
 Exposes a single `execute_sql` tool with the same signature, return shape and
 safety pattern as NexEvo's `nl2sql.tools.sql_tool:execute_sql`, so this agent
 stays drop-in consistent with the upstream ChatBI tool surface. The backend is
 SQLite (read-only) instead of asyncpg/PostgreSQL.
 
-The DB path is taken from the env var ``NL2SQL_DB_PATH`` (default:
+The DB path is taken from the env var ``ENTERPRISE_DB_PATH`` (default:
 ``enterprise.sqlite`` in the current working directory).
 """
 
@@ -22,7 +22,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DB_PATH_ENV = "NL2SQL_DB_PATH"
+DB_PATH_ENV = "ENTERPRISE_DB_PATH"
 DEFAULT_DB_PATH = "enterprise.sqlite"
 
 MAX_ROWS = 10

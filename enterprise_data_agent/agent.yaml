@@ -1,6 +1,6 @@
 type: agent
-name: nl2sql_agent
-description: NL2SQL agent over the North Nova enterprise SQLite mirror.
+name: enterprise_data_agent
+description: enterprise data agent over the North Nova enterprise SQLite mirror.
 max_context_tokens: 200000
 max_iterations: 50
 
@@ -21,12 +21,12 @@ tools:
   # SELECT executor — same name/schema/return shape as NexEvo's ChatBI tool.
   - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: nl2sql_agent.bindings:execute_sql
+    binding: enterprise_data_agent.bindings:execute_sql
 
   # Built-in planning scratchpad for multi-table queries.
-  - name: todo_write
+  - name: write_todos
     yaml_path: ./tools/TodoWrite.tool.yaml
-    binding: nexau.archs.tool.builtin.todo_write:todo_write
+    binding: nexau.archs.tool.builtin.session_tools:write_todos
 
 # One skill per table — gives the model authoritative knowledge of the
 # schema, business semantics, common values, and example queries.

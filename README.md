@@ -4,11 +4,11 @@
 
 NexAU is a general-purpose agent framework for building tool-using LLM agents. You define an agent — its model, prompt, tools, sub-agents, skills, and middleware — in a single YAML file, and run it from the command line or from Python.
 
-These docs are a hands-on tutorial. By the end, you will have built a real **NL2SQL agent** that answers natural-language questions about a SQLite database of Chinese enterprises. We use that one running example throughout, so every code snippet you read is part of an agent you can actually run.
+These docs are a hands-on tutorial. By the end, you will have built a real **enterprise data agent** that answers natural-language questions about a SQLite database of Chinese enterprises. We use that one running example throughout, so every code snippet you read is part of an agent you can actually run.
 
 ## What we're building
 
-A read-only NL2SQL agent over a 7-table enterprise database. Ask it questions in plain language; it picks the right table(s), writes SQLite, runs the query, and returns a grounded answer with the SQL it used.
+A read-only enterprise data agent over a 7-table enterprise database. Ask it questions in plain language; it picks the right table(s), writes SQLite, runs the query, and returns a grounded answer with the SQL it used.
 
 ```
 > Top 5 enterprises by registered capital in 海淀区?
@@ -27,14 +27,14 @@ LIMIT  5;
 ```
 ```
 
-The full agent we build lives in [`nl2sql_agent/`](./nl2sql_agent/) at the repo root. You can run it the moment you finish the Quickstart.
+The full agent we build lives in [`enterprise_data_agent/`](./enterprise_data_agent/) at the repo root. You can run it the moment you finish the Quickstart.
 
 ## How NexAU thinks about agents
 
 We think of NexAU as a **YAML-first agent harness**. Three ideas matter:
 
 1. **Tools are decoupled from their implementation.** A `*.tool.yaml` file holds the schema the model sees; a Python function holds the actual behavior. They're bound together at load time. This is how the same tool can target OpenAI, Anthropic, and Gemini wire formats without rewriting.
-2. **Skills are first-class context.** For an NL2SQL agent the schema isn't enough — the model needs to know what each column *means*, when to use a table, and what gotchas to watch for. NexAU loads Claude-Skill-compatible folders so you can author this knowledge once and reuse it.
+2. **Skills are first-class context.** For an enterprise data agent the schema isn't enough — the model needs to know what each column *means*, when to use a table, and what gotchas to watch for. NexAU loads Claude-Skill-compatible folders so you can author this knowledge once and reuse it.
 3. **Provider switching is one block.** The same agent runs across OpenAI Chat Completions, OpenAI Responses, Anthropic, and Gemini — change the `api_type` field and nothing else.
 
 ## Tutorial path
@@ -44,7 +44,7 @@ Read these in order. Each step ends with something you can run.
 | | Step | What you build |
 |---|---|---|
 | 1 | [Quickstart](./get-started/quickstart.md) | Install NexAU, set env, run the finished example to feel it work |
-| 2 | [Project structure](./get-started/project-structure.md) | Lay out an `nl2sql_agent/` folder |
+| 2 | [Project structure](./get-started/project-structure.md) | Lay out an `enterprise_data_agent/` folder |
 | 3 | [Writing the SQL tools](./get-started/tool-yaml.md) | `list_tables`, `describe_table`, `sql_query` — schemas + Python bindings |
 | 4 | [Writing the table Skills](./get-started/skills.md) | One Skill per table — the model's database knowledge base |
 | 5 | [Writing the agent YAML](./get-started/agent-yaml.md) | Wire tools, skills, system prompt, LLM, and middlewares together |
@@ -54,7 +54,7 @@ Read these in order. Each step ends with something you can run.
 
 - Code blocks marked `yaml` are real files you'll create.
 - Code blocks marked `python` are the Python tool bindings — short and dependency-light.
-- File paths like `nl2sql_agent/tools/sql_query.tool.yaml` always refer to the runnable example in this repo.
+- File paths like `enterprise_data_agent/tools/sql_query.tool.yaml` always refer to the runnable example in this repo.
 - Environment variables use `${env.VAR_NAME}` inside YAML and `os.getenv("VAR_NAME")` in Python.
 
 Ready? Start with the [Quickstart →](./get-started/quickstart.md)

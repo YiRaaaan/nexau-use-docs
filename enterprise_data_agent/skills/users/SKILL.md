@@ -1,6 +1,6 @@
 ---
 name: users
-description: Use this skill ONLY when the user explicitly asks about platform users — login accounts, SSO ids, roles. This table is unrelated to the enterprise tables and should not be joined to them. Most NL2SQL questions about "用户" actually mean enterprises, not platform users — confirm with the user if ambiguous.
+description: Use this skill ONLY when the user explicitly asks about platform users — login accounts, SSO ids, roles. This table is unrelated to the enterprise tables and should not be joined to them. Most natural-language questions about "用户" actually mean enterprises, not platform users — confirm with the user if ambiguous.
 ---
 
 # users — 平台用户账号

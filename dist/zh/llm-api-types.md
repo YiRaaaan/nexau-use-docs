@@ -1,12 +1,12 @@
 # 第 6 章 · 跨 Provider 运行
 
-前面 5 章你已经把 NL2SQL 智能体跑起来了——但只在 OpenAI Chat Completions 协议上。第 6 章不再加新功能，只回答一个问题:**已经写好的这一份 `agent.yaml`(同样的工具、同样的 Skill、同样的系统提示)，怎么换到 Anthropic Claude / Google Gemini / OpenAI Responses 上跑?**
+前面 5 章你已经把企业数据分析 Agent 跑起来了——但只在 OpenAI Chat Completions 协议上。第 6 章不再加新功能，只回答一个问题：**已经写好的这一份 `agent.yaml`（同样的工具、同样的 Skill、同样的系统提示），怎么换到 Anthropic Claude / Google Gemini / OpenAI Responses 上跑?**
 
-答案是:**只改 `llm_config` 这一块**，其他什么都不动。
+答案是：**只改 `llm_config` 这一块**，其他什么都不动。
 
 ## 为什么这能成
 
-NexAU 的工作之一就是翻译。你在第 2 章写了一份 `ExecuteSQL.tool.yaml`，运行时 NexAU 根据 `api_type` 把里面的 JSON Schema 重写成:
+NexAU 的工作之一就是翻译。你在第 2 章写了一份 `ExecuteSQL.tool.yaml`，运行时 NexAU 根据 `api_type` 把里面的 JSON Schema 重写成：
 
 - OpenAI function definition，或者
 - OpenAI Responses tool block，或者
@@ -26,7 +26,7 @@ NexAU 的工作之一就是翻译。你在第 2 章写了一份 `ExecuteSQL.tool
 
 ## 我们的起点
 
-打开 `nl2sql_agent/agent.yaml`。`llm_config` 现在长这样：
+打开 `enterprise_data_agent/agent.yaml`。`llm_config` 现在长这样：
 
 ```yaml
 llm_config:
@@ -44,14 +44,14 @@ llm_config:
 先跑一遍确认它还能用：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "海淀区有多少家企业？"
+uv run enterprise_data_agent/start.py "海淀区有多少家企业？"
 ```
 
 OK，开始换 Provider。
 
-## 6a —— 切换到 OpenAI Responses (推理模型)
+## 6a —— 切换到 OpenAI Responses （推理模型）
 
-Responses API 是 OpenAI 给 `o1` / `o3` / `gpt-5` 系列推理模型(reasoning model，会在回答前先在内部"想一会儿"，把推理过程藏起来，只把结论给你)用的新端点。它跟 Chat Completions 用一样的认证和 base URL，但请求结构不同，并且多了一个 `reasoning` block，让你调节模型用多少隐藏推理。
+Responses API 是 OpenAI 给 `o1` / `o3` / `gpt-5` 系列推理模型（reasoning model，会在回答前先在内部"想一会儿"，把推理过程藏起来，只把结论给你）用的新端点。它跟 Chat Completions 用一样的认证和 base URL，但请求结构不同，并且多了一个 `reasoning` block，让你调节模型用多少隐藏推理。
 
 **把 `llm_config` 改成这样：**
 
@@ -92,10 +92,10 @@ LLM_API_KEY=sk-...
 **跑：**
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "各 专精特新 等级有多少家企业？"
+uv run enterprise_data_agent/start.py "各 专精特新 等级有多少家企业？"
 ```
 
-应该看到跟之前形状一样的答案，如果你用 CLI（`./run-agent nl2sql_agent/agent.yaml`）还能在 trace 里看到 `reasoning` 总结块。
+应该看到跟之前形状一样的答案，如果你用 CLI（`./run-agent enterprise_data_agent/agent.yaml`）还能在 trace 里看到 `reasoning` 总结块。
 
 > NexAU 还处理了 Responses API 的一个微妙差异：当工具返回图片时，图片会嵌在**工具消息内部**，而不是作为后续 user 消息注入。你不用关心这个 —— 你的工具 YAML 不变 —— 但这正是同一个工具在两种 API 上都能跑而不用重写的原因。
 
@@ -141,14 +141,14 @@ LLM_API_KEY=sk-ant-...
 **跑：**
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "AI 产业链里估值最高的 5 家企业是？"
+uv run enterprise_data_agent/start.py "AI 产业链里估值最高的 5 家企业是？"
 ```
 
 这个问题强迫智能体 join `enterprise_basic`、`enterprise_financing`、`industry_enterprise`、`industry`。看 Claude 怎么挑表——它会跟 OpenAI 一样依赖你在[第 3 章](./03-skills.md)写的 Skill 描述。
 
-### 一个额外的好东西:prompt caching
+### 一个额外的好东西：prompt caching
 
-Claude API 支持 prompt caching(提示词缓存，把每次都不变的那段 system prompt + Skill 在服务端缓存住，后续请求只算增量部分的钱、延迟也低很多),NexAU 用一个字段就能开:
+Claude API 支持 prompt caching（提示词缓存，把每次都不变的那段 system prompt + Skill 在服务端缓存住，后续请求只算增量部分的钱、延迟也低很多），NexAU 用一个字段就能开：
 
 ```yaml
 llm_config:
@@ -157,7 +157,7 @@ llm_config:
   ...
 ```
 
-对 NL2SQL 智能体这意义不小 —— 系统提示加 7 个 Skill 加起来好几千 token 是不变的。缓存它们意味着第一次调用是全价，之后只是零头。
+对企业数据分析 Agent 这意义不小 —— 系统提示加 7 个 Skill 加起来好几千 token 是不变的。缓存它们意味着第一次调用是全价，之后只是零头。
 
 ## 6c —— 切换到 Google Gemini
 
@@ -201,7 +201,7 @@ LLM_API_KEY=...
 **跑：**
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "哪条产业链的企业最多？"
+uv run enterprise_data_agent/start.py "哪条产业链的企业最多？"
 ```
 
 NexAU 把你的工具 YAML 翻译成 Gemini `functionDeclarations`，把 `functionCall` parts 解析回来，然后跑循环。同一个智能体，第三种协议。
@@ -267,7 +267,7 @@ llm_config:
 
 ## 那 `tool_call_mode: xml` 呢?
 
-我们在 `agent.yaml` 里设了 `tool_call_mode: structured`，用上表里 Provider 原生的 function calling(模型在 API 层面返回一个结构化 JSON 表示"我要调哪个工具、参数是什么"，而不是混在普通文本里让你 parse)。另一个选项是:
+我们在 `agent.yaml` 里设了 `tool_call_mode: structured`，用上表里 Provider 原生的 function calling（模型在 API 层面返回一个结构化 JSON 表示"我要调哪个工具、参数是什么"，而不是混在普通文本里让你 parse）。另一个选项是：
 
 ```yaml
 tool_call_mode: xml
@@ -283,7 +283,7 @@ tool_call_mode: xml
 
 ## 你学到了什么
 
-你已经通过编辑一个 block 把同一个 NL2SQL 智能体跑过四种协议了。心智模型是：
+你已经通过编辑一个 block 把同一个企业数据分析 Agent 跑过四种协议了。心智模型是：
 
 - **`api_type`** 决定协议格式
 - **`tool_call_mode`** 决定用 Provider 原生 function calling 还是 NexAU 中性 XML
@@ -323,8 +323,8 @@ cfg = LLMConfig(
 
 这就是完整的 0 → 1 教程。从这里开始，自然的下一步是：
 
-- **加一个子智能体**处理某个特化子任务(比如一个"schema-explorer"，只读 schema 工具加独立上下文预算)。源仓库的 `examples/code_agent/sub_agent.yaml` 有例子。
-- **加一个 MCP server**(MCP = Model Context Protocol,Anthropic 提出的一个工具协议，让任何支持 MCP 的工具/服务可以一键接到智能体上)把项目外的工具拉进来。
+- **加一个子智能体**处理某个特化子任务（比如一个"schema-explorer"，只读 schema 工具加独立上下文预算）。源仓库的 `examples/code_agent/sub_agent.yaml` 有例子。
+- **加一个 MCP server**（MCP = Model Context Protocol，Anthropic 提出的一个工具协议，让任何支持 MCP 的工具/服务可以一键接到智能体上）把项目外的工具拉进来。
 - **加一个 tracer**（`nexau.archs.tracer.adapters.langfuse:LangfuseTracer`）当你开始需要可观测性。
 - **迭代 Skill。** 智能体的质量几乎完全靠 Skill 的编辑增长 —— 每个错的查询都变成一条新的 "Gotchas"。
 

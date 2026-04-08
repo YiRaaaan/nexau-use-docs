@@ -18,7 +18,7 @@
 
 这些都不是 **工具问题**——`execute_sql` 已经够好了。这是 **知识问题**：模型不了解这个数据库的"潜规则"。
 
-一个朴素的想法：**全塞进 system prompt**。但有 7 张表，每张表都有十几列、几个常用值、几个坑点(gotcha)——全塞进去 system prompt 就会膨胀到几千行，每次对话都要浪费几千 tokens(token 是大模型处理文本的最小单位，中文大致一个汉字一个 token)在"用户问的可能根本用不到的表"上面。
+一个朴素的想法：**全塞进 system prompt**。但有 7 张表，每张表都有十几列、几个常用值、几个坑点（gotcha）——全塞进去 system prompt 就会膨胀到几千行，每次对话都要浪费几千 tokens（token 是大模型处理文本的最小单位，中文大致一个汉字一个 token）在"用户问的可能根本用不到的表"上面。
 
 更好的做法：**把每张表的知识打包成一个 Skill，让模型按需读取**。
 
@@ -34,7 +34,7 @@ skills/
     └── SKILL.md
 ```
 
-`SKILL.md` 的开头是一段 YAML frontmatter(frontmatter 就是文件最前面用 `---` 包起来的元数据块，Markdown 圈的常见约定)，剩下是 Markdown 正文:
+`SKILL.md` 的开头是一段 YAML frontmatter（frontmatter 就是文件最前面用 `---` 包起来的元数据块，Markdown 圈的常见约定），剩下是 Markdown 正文：
 
 ```markdown
 ---
@@ -56,7 +56,7 @@ description: Use this skill whenever the user asks about an enterprise's
 | `description` | **LLM**（永远在 context 里） | 模型靠这一句话决定"我现在该不该读这个 skill" |
 | 正文 | **LLM**（按需读取） | 真正的领域知识 |
 
-所以 `description` 是**路由提示**(决定模型把当前问题"派"给哪个 Skill)——它要回答"什么时候用我"。正文是**真正的知识**——它要在被读到时尽可能完整。
+所以 `description` 是**路由提示**（决定模型把当前问题"派"给哪个 Skill）——它要回答"什么时候用我"。正文是**真正的知识**——它要在被读到时尽可能完整。
 
 > **跟 Claude Skills 兼容**：NexAU 的 Skill 格式直接复用 Claude Skills 的 schema。你在 Claude 里写的 Skill 可以直接拖进 NexAU。
 
@@ -64,7 +64,7 @@ description: Use this skill whenever the user asks about an enterprise's
 
 ## 写第一个 Skill：`enterprise_basic`
 
-在 `nl2sql_agent/` 下创建 `skills/enterprise_basic/SKILL.md`：
+在 `enterprise_data_agent/` 下创建 `skills/enterprise_basic/SKILL.md`：
 
 ````markdown
 ---
@@ -97,7 +97,7 @@ enterprise, keyed by `credit_code` (统一社会信用代码).
 | `industry_level1` ~ `industry_level4` | TEXT | 行业四级编码 |
 | `zhuanjingtexin_level` | TEXT | 专精特新等级，可能为 NULL，取值见下 |
 
-完整列表见 `nl2sql_agent/skills/enterprise_basic/SKILL.md`（仓库里有 30+ 列）。
+完整列表见 `enterprise_data_agent/skills/enterprise_basic/SKILL.md`（仓库里有 30+ 列）。
 
 ## Common values
 
@@ -136,7 +136,7 @@ GROUP BY zhuanjingtexin_level;
 - `enterprise_name` 在 mock 里全是 `测试企业_N`，不要假装它是真公司。
 ````
 
-> 真实仓库的 `nl2sql_agent/skills/enterprise_basic/SKILL.md` 比上面更详细一些
+> 真实仓库的 `enterprise_data_agent/skills/enterprise_basic/SKILL.md` 比上面更详细一些
 > （所有 30+ 列、更多 example）。可以直接复制过来用。
 
 **注意三件事**：
@@ -145,7 +145,7 @@ GROUP BY zhuanjingtexin_level;
 
 2. **Schema 表写了类型 + 最关键的 gotcha**：`register_capital` 是 TEXT 这件事，是这张表最容易踩坑的点，所以紧贴在表里写出来，再到 Gotchas 章节强调一遍。
 
-3. **Example queries 放完整 SQL**:模型读 Skill 不只是为了"知道有这一列",而是为了"看看长得对的 SQL 应该是什么样"。范例就是 few-shot(给模型几个示范,让它照葫芦画瓢)。
+3. **Example queries 放完整 SQL**：模型读 Skill 不只是为了"知道有这一列"，而是为了"看看长得对的 SQL 应该是什么样"。范例就是 few-shot（给模型几个示范，让它照葫芦画瓢）。
 
 ---
 
@@ -158,7 +158,7 @@ GROUP BY zhuanjingtexin_level;
 ```markdown
 ---
 name: users
-description: Use this skill ONLY when the user explicitly asks about platform users — login accounts, SSO ids, roles. This table is unrelated to the enterprise tables and should not be joined to them. Most NL2SQL questions about "用户" actually mean enterprises, not platform users — confirm with the user if ambiguous.
+description: Use this skill ONLY when the user explicitly asks about platform users — login accounts, SSO ids, roles. This table is unrelated to the enterprise tables and should not be joined to them. Most natural-language questions about "用户" actually mean enterprises, not platform users — confirm with the user if ambiguous.
 ---
 
 # users — 平台用户账号
@@ -194,7 +194,7 @@ SELECT role, COUNT(*) FROM users GROUP BY role;
 注意 `description` 里两个关键词：
 
 - **`ONLY when ... explicitly asks about platform users`** —— 给模型一个明确的门槛
-- **`Most NL2SQL questions about "用户" actually mean enterprises ... confirm with the user if ambiguous`** —— 这是给模型的**消歧策略**
+- **`Most natural-language questions about "用户" actually mean enterprises ... confirm with the user if ambiguous`** —— 这是给模型的**消歧策略**
 
 这就是反向路由：用 description 主动**劝退**模型，避免它误用这张表。
 
@@ -215,7 +215,7 @@ skills/
 └── users/SKILL.md                  ✓ 已写
 ```
 
-**懒人方案**：直接把 `nl2sql_agent/skills/` 里的 7 个 SKILL.md 复制到你的项目里。它们就是按本章的方法论写的。
+**懒人方案**：直接把 `enterprise_data_agent/skills/` 里的 7 个 SKILL.md 复制到你的项目里。它们就是按本章的方法论写的。
 
 每张表的 Skill 都要回答这三个问题：
 
@@ -233,13 +233,13 @@ skills/
 
 ```yaml
 type: agent
-name: nl2sql_agent
+name: enterprise_data_agent
 # ... 前面的 llm_config / tools 都不变 ...
 
 tools:
   - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: nl2sql_agent.bindings:execute_sql
+    binding: enterprise_data_agent.bindings:execute_sql
 
 # 新增：每张表一个 Skill
 skills:
@@ -254,20 +254,20 @@ skills:
 
 每一项是**指向 Skill 文件夹的相对路径**（不是 `SKILL.md` 文件本身）。框架启动时会扫描每个文件夹的 `SKILL.md`，把 frontmatter 里的 `name`/`description` 注册为可用 Skill，正文按需加载。
 
-> **背后做了什么**:所有 Skill 的 `description` 在智能体启动时就拼到 system prompt 里(约 7 行),告诉模型"你有这些 Skill 可用"。**正文不会进 context**——只有当模型决定调用 `read_skill` 工具去读某个 Skill 的时候,正文才被注入。这就是按需加载。
+> **背后做了什么**：所有 Skill 的 `description` 在智能体启动时就拼到 system prompt 里（约 7 行），告诉模型"你有这些 Skill 可用"。**正文不会进 context**——只有当模型决定调用 `read_skill` 工具去读某个 Skill 的时候，正文才被注入。这就是按需加载。
 
-> **`read_skill` 是哪儿来的?** 这是一个**框架自动注入的内置工具**,你的 `agent.yaml` 里看不到也不用写——只要 `skills:` 段非空,NexAU 在启动时就会自动把 `read_skill(name: str)` 加到智能体的工具列表里,函数体里做的就是"打开对应文件夹下的 SKILL.md,读完内容塞进对话"。所以模型一启动就有这个工具,只是它来自 NexAU 自己的代码,不是你写的。后面第 4 章你会看到另一类内置工具(`run_shell_command` / `todo_write` 之类),那些**需要你在 `tools:` 里显式声明**才能用——`read_skill` 是唯一一个隐式注入的,因为它跟 Skills 系统是一体的。
+> **`read_skill` 是哪儿来的?** 这是一个**框架自动注入的内置工具**，你的 `agent.yaml` 里看不到也不用写——只要 `skills:` 段非空，NexAU 在启动时就会自动把 `read_skill(name: str)` 加到智能体的工具列表里，函数体里做的就是"打开对应文件夹下的 SKILL.md，读完内容塞进对话"。所以模型一启动就有这个工具，只是它来自 NexAU 自己的代码，不是你写的。后面第 4 章你会看到另一类内置工具（`run_shell_command` / `write_todos` 之类），那些**需要你在 `tools:` 里显式声明**才能用——`read_skill` 是唯一一个隐式注入的，因为它跟 Skills 系统是一体的。
 
 ---
 
 ## 重写 system prompt
 
-第 1、2 章的 system prompt 只是简短地告诉模型"有 7 张表"。现在我们把它**重写一遍**——一方面把 7 张表的名字明确列出来,另一方面强调"写查询前必须先读对应的 Skill"。详细的 schema、列类型、坑点不再进 prompt,全部留给 Skill 按需加载。
+第 1、2 章的 system prompt 只是简短地告诉模型"有 7 张表"。现在我们把它**重写一遍**——一方面把 7 张表的名字明确列出来，另一方面强调"写查询前必须先读对应的 Skill"。详细的 schema、列类型、坑点不再进 prompt，全部留给 Skill 按需加载。
 
-把 `system_prompt.md` 改成大致这个样子:
+把 `system_prompt.md` 改成大致这个样子：
 
 ```markdown
-You are an NL2SQL agent for the **North Nova enterprise intelligence
+You are an enterprise data agent for the **North Nova enterprise intelligence
 database** — a SQLite mirror of seven core tables describing Chinese
 enterprises, their contacts, financing, products, and industry chains.
 
@@ -315,7 +315,7 @@ names will lead to errors; the Skill is the authoritative reference.
 ## 跑起来，测之前坏掉的问题
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "海淀区注册资本最高的 3 家企业是？"
+uv run enterprise_data_agent/start.py "海淀区注册资本最高的 3 家企业是？"
 ```
 
 这一次模型应该：
@@ -337,7 +337,7 @@ LIMIT 3;
 再试两个：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "专精特新小巨人企业有几家？"
+uv run enterprise_data_agent/start.py "专精特新小巨人企业有几家？"
 ```
 
 模型读 `enterprise_basic` Skill，发现 `zhuanjingtexin_level` 这一列，**一次写对**：
@@ -348,7 +348,7 @@ WHERE zhuanjingtexin_level = '专精特新"小巨人"企业';
 ```
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "AI 产业链上游有哪些企业？"
+uv run enterprise_data_agent/start.py "AI 产业链上游有哪些企业？"
 ```
 
 模型读 `industry` Skill，发现 `chain_position` 字段；读 `industry_enterprise` Skill，发现 join 模式；写出：
@@ -385,7 +385,7 @@ WHERE i.chain_id = (SELECT id FROM industry WHERE name LIKE '%人工智能%' AND
 | `bindings.py` | 不存在 | 100 行 | **未改动** |
 | `tools/*.tool.yaml` | 不存在 | 1 个 | **未改动** |
 | `skills/*/SKILL.md` | 不存在 | 不存在 | 7 个 |
-| `system_prompt.md` Workflow | 4 步 | 5 步(强调结构化返回 + reflect) | 6 步(强调读 Skill) |
+| `system_prompt.md` Workflow | 4 步 | 5 步（强调结构化返回 + reflect） | 6 步（强调读 Skill） |
 
 ---
 
@@ -404,10 +404,10 @@ WHERE i.chain_id = (SELECT id FROM industry WHERE name LIKE '%人工智能%' AND
 
 问题不是知识不够，而是 **多步任务没有规划**。模型需要一个"草稿本"把任务拆成一步步。
 
-NexAU 的内置工具 `todo_write` 就是干这个的。第 4 章我们会:
+NexAU 的内置工具 `write_todos` 就是干这个的。第 4 章我们会：
 
 - 介绍 NexAU 自带的几类内置工具（文件、搜索、shell、规划）
-- 重点讲 `todo_write`，把它装到我们的 agent 里
+- 重点讲 `write_todos`，把它装到我们的 agent 里
 - 让 system prompt 在多表问题里**强制规划**
 
 → **第 4 章 · 高级内置工具教学**

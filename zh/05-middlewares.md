@@ -1,28 +1,28 @@
 # 第 5 章 · 生产级中间件
 
-> **目标**：装上 `LongToolOutputMiddleware`，让任何"贪心"查询都不会撑爆 context。
+> **目标**：启用 `LongToolOutputMiddleware`，让任何"贪心"查询都不会撑爆 context。
 >
-> **本章结束时**：`SELECT * FROM enterprise_basic LIMIT 50` 这种查询返回的几十 KB 数据，会被自动截成头 30 行 + 尾 10 行 + 一行省略提示，再塞进 LLM。
+> **本章结束时**：`SELECT * FROM enterprise_basic LIMIT 50` 这种查询返回的几十 KB 数据，会被自动截成头 30 行 + 尾 10 行 + 一行省略提示，再传入 LLM。
 >
-> **本章学的最重要的事**：**Middleware 是 NexAU 的横切关注点机制**——一些不属于任何具体工具、但每个工具都要走一遍的逻辑（截断、压缩、日志、tracing），统一在这里处理。
+> **本章学的最重要的事**：**Middleware 是 NexAU 的横切关注点机制**——一些不属于任何具体工具、但每个工具都要经过的逻辑（截断、压缩、日志、tracing），统一在这里处理。
 
 ## 第 4 章的痛点回顾
 
 第 4 章末尾那个贪心查询：
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "把 enterprise_basic 表所有字段全部列出来给我看看"
+uv run enterprise_data_agent/start.py "把 enterprise_basic 表所有字段全部列出来给我看看"
 ```
 
 模型写出 `SELECT * FROM enterprise_basic LIMIT 50`，工具返回的 `data` 字段是一个 50 ✕ 30 的二维数组，每个 cell 又有几十字的中文。整个返回 JSON 在 30–60 KB 之间。
 
-把 30 KB 原封不动塞回 LLM 的 context，会发生：
+把 30 KB 原封不动传回 LLM 的 context，会导致：
 
 1. context 配额被吃掉一大块（10–20 K tokens）
 2. 模型根本不需要看完所有行就能总结，但你已经为此付费
 3. 后续对话剩下的预算变小，多轮容易截断
 
-我们想要:**返回结果在被加进 message history 之前，超长部分自动截断**。但这件事不应该写在 `execute_sql` 里——下一个工具一样会有这个问题。它属于**横切关注点**(cross-cutting concern，指那种"不属于任何具体业务，但所有业务都要走一遍"的逻辑，比如日志、限流、超长截断)，应该被中间件统一处理。
+我们想要：**返回结果在被加进 message history 之前，超长部分自动截断**。但这件事不应该写在 `execute_sql` 里——下一个工具一样会有这个问题。它属于**横切关注点**（cross-cutting concern，指那种"不属于任何具体业务，但所有业务都要走一遍"的逻辑，比如日志、限流、超长截断），应该被中间件统一处理。
 
 ---
 
@@ -56,11 +56,11 @@ NexAU 内置几个常用的：
 
 ## 在 `agent.yaml` 里挂上 `LongToolOutputMiddleware`
 
-在第 4 章的 `agent.yaml` 末尾加一个 `middlewares:` 块。注意中间件用的是 `import:` 字段，工具用的是 `binding:`，两者的作用其实是一样的——都是 `module.path:ClassOrFunction` 格式，告诉 NexAU 去哪儿 import 一个 Python 对象。名字不一样只是历史原因:tool 通常绑到一个函数(binding),middleware 通常是一个类(import)，两边的写法和效果是对应的。
+在第 4 章的 `agent.yaml` 末尾加一个 `middlewares:` 块。注意中间件用的是 `import:` 字段，工具用的是 `binding:`，两者的作用其实是一样的——都是 `module.path:ClassOrFunction` 格式，告诉 NexAU 去哪儿 import 一个 Python 对象。名字不一样只是历史原因：tool 通常绑到一个函数（binding），middleware 通常是一个类（import），两边的写法和效果是对应的。
 
 ```yaml
 type: agent
-name: nl2sql_agent
+name: enterprise_data_agent
 # ... 前面的所有内容都不变 ...
 
 middlewares:
@@ -89,17 +89,17 @@ middlewares:
 ... [truncated 27 lines / 14_823 chars] ...
 ```
 
-> **数字怎么定的**：8000 字符 ≈ 2 K tokens，对一个 NL2SQL 工具来说**足够看清楚一个完整结果**（30 行 ✕ 几列），但又不会让一次贪心 `SELECT *` 把 context 吃光。这是经验值，可以按你自己的模型 / 预算调。
+> **数字怎么定的**：8000 字符 ≈ 2 K tokens，对一个数据查询工具来说**足够看清楚一个完整结果**（30 行 ✕ 几列），但又不会让一次贪心 `SELECT *` 把 context 吃光。这是经验值，可以按你自己的模型 / 预算调。
 
 ---
 
 ## 跑那个贪心查询
 
 ```bash
-dotenv run uv run nl2sql_agent/start.py "把 enterprise_basic 表所有字段全部列出来给我看看"
+uv run enterprise_data_agent/start.py "把 enterprise_basic 表所有字段全部列出来给我看看"
 ```
 
-观察 trace(还是 stdout，跟第 4 章一样;CLI `./run-agent` 看更结构化的版本):模型还是会调 `execute_sql(sql="SELECT * FROM enterprise_basic LIMIT 50")`，工具实际**也跑出了**完整的 50 行——但是塞回 LLM 的那一份**已经被截过了**:
+观察 trace（还是 stdout，跟第 4 章一样;CLI `./run-agent` 看更结构化的版本）：模型还是会调 `execute_sql(sql="SELECT * FROM enterprise_basic LIMIT 50")`，工具实际**也跑出了**完整的 50 行——但是塞回 LLM 的那一份**已经被截过了**：
 
 ```
 {
@@ -133,7 +133,7 @@ dotenv run uv run nl2sql_agent/start.py "把 enterprise_basic 表所有字段全
 
 长对话跑久了，message history 会越积越大。这个中间件在接近 context 上限时**自动总结早期消息**，把"前 30 轮的工具调用 + 回复"压成一段几百字的摘要，再继续。
 
-对 NL2SQL 不是必须，但如果用户开着同一个 session 问几十个问题，**没装这个就会撞 context 上限崩掉**。
+对数据分析不是必须，但如果用户开着同一个 session 问几十个问题，**没装这个就会撞 context 上限崩掉**。
 
 ```yaml
 middlewares:
@@ -143,13 +143,13 @@ middlewares:
       # ...
   - import: nexau.archs.main_sub.execution.middleware.context_compaction:ContextCompactionMiddleware
     params:
-      trigger_ratio: 0.8        # 用到 80% context 时触发
-      keep_recent_messages: 6   # 始终保留最近 6 条原文
+      threshold: 0.8             # 用到 80% context 时触发
+      keep_iterations: 6        # 始终保留最近 6 轮工具调用原文
 ```
 
 ### Tracing — Langfuse / OpenTelemetry
 
-Tracing(链路追踪，把一次请求里发生的所有事件按时间顺序串起来，方便事后回放)。NexAU 支持把每一轮 LLM 调用 + 工具调用挂到 Langfuse(一个开源的 LLM 可观测平台，专门用来看智能体的 trace)。配置一般在 agent.yaml 同级的全局配置里，不严格属于 middleware 章节。**值得一提**:上线 NL2SQL 智能体的时候，Langfuse trace 是你**唯一**能搞清楚"为什么这个用户的查询答错了"的工具——它把每个 Skill 是否被读、每个 SQL 是怎么写出来的、每个工具返回是什么，全部串成一条可点击的时间线。
+Tracing（链路追踪，把一次请求里发生的所有事件按时间顺序串起来，方便事后回放）。NexAU 支持把每一轮 LLM 调用 + 工具调用挂到 Langfuse（一个开源的 LLM 可观测平台，专门用来看智能体的 trace）。配置一般在 agent.yaml 同级的全局配置里，不严格属于 middleware 章节。**值得一提**：上线企业数据分析 Agent 的时候，Langfuse trace 是你**唯一**能搞清楚"为什么这个用户的查询答错了"的工具——它把每个 Skill 是否被读、每个 SQL 是怎么写出来的、每个工具返回是什么，全部串成一条可点击的时间线。
 
 > 想接 Langfuse 的话，参考 NexAU 文档的 tracing 章节，本教程不展开。
 
@@ -165,7 +165,7 @@ Middleware 就是一个 Python 类，实现 `before_tool_call` / `after_tool_cal
 |---|---|
 | **Middleware = 横切关注点** | 截断 / 压缩 / 日志 / tracing 都在这里 |
 | **`import:` + `params:`** | YAML 里挂中间件的标准格式 |
-| **`LongToolOutputMiddleware`** | NL2SQL 的标配，防 `SELECT *` 撑爆 context |
+| **`LongToolOutputMiddleware`** | 数据分析 agent 的标配，防 `SELECT *` 撑爆 context |
 | **截断只动 LLM 看到的那一份** | 工具自己拿到的还是完整结果 |
 | **数字要按你的模型/预算调** | 8000 chars / 30 head / 10 tail 是经验值 |
 
@@ -188,7 +188,7 @@ Middleware 就是一个 Python 类，实现 `before_tool_call` / `after_tool_cal
 回头看你已经写了什么：
 
 ```
-nl2sql_agent/
+enterprise_data_agent/
 ├── agent.yaml             # ~50 行：llm/tools/skills/middlewares
 ├── system_prompt.md       # 7 步 workflow
 ├── bindings.py            # ~100 行：execute_sql + 安全护栏
