@@ -1,34 +1,34 @@
-# 第 2 章 · 写自定义 SQL 工具
+# 第 2 章 · 编写自定义 SQL 工具
 
 ## 第 1 章的痛点回顾
 
-第 1 章的智能体可以运行，但它有四个明显的代价：
+第 1 章的 Agent 可以运行，但存在四个明显的代价：
 
-- **结果是 stdout 字符串**——LLM 自己数空格、对齐列名，容易出错
-- **安全靠 system prompt**——模型一旦"听不懂话"，就能真的执行 `DELETE`
-- **每次调用 fork 一个 sqlite3 进程**——延迟和资源都更高
-- **LLM 不知道列名，每次都要先 `.schema` 探一次**
+- **结果是 stdout 字符串**——LLM 自行数空格、对齐列名，容易出错
+- **安全依赖 system prompt**——模型一旦未遵守约束，就可能实际执行 `DELETE`
+- **每次调用 fork 一个 sqlite3 进程**——延迟和资源开销更高
+- **LLM 不知道列名，每次都要先 `.schema` 探查一次**
 
-第 2 章一次性解决前三个，方法是用一个自定义 Python 工具替换掉 `run_shell_command`（列名问题留给第 3 章用 Skills 解决）。这一章讲的不只是"怎么写一个 SQL 工具"，而是 NexAU 中所有自定义工具都遵循的同一个模式——一份 Python 实现加一份 YAML schema，通过 `binding` 在 `agent.yaml` 里绑定起来。
+第 2 章一次性解决前三项，方式是用一个自定义 Python 工具替换 `run_shell_command`（列名问题留待第 3 章用 Skills 解决）。本章所介绍的不仅是"如何编写一个 SQL 工具"，更是 NexAU 中所有自定义工具都遵循的统一模式——一份 Python 实现加一份 YAML schema，通过 `binding` 在 `agent.yaml` 中绑定。
 
-## 一个 NexAU 工具有两半
+## 一个 NexAU 工具由两部分组成
 
-NexAU 里每个工具都是两个文件：
+NexAU 中每个工具对应两个文件：
 
-| 部分 | 文件 | 给谁看 |
+| 部分 | 文件 | 受众 |
 |---|---|---|
-| schema | `tools/<Name>.tool.yaml` | 给 LLM 看的：名字、描述、参数 |
-| 实现 | `bindings.py` 里的一个函数 | 给机器执行的：真正运行的代码 |
+| schema | `tools/<Name>.tool.yaml` | 面向 LLM：名称、描述、参数 |
+| 实现 | `bindings.py` 中的一个函数 | 面向机器：实际执行的代码 |
 
-两者通过 `agent.yaml` 里的 `binding:` 字段绑在一起。
+两者通过 `agent.yaml` 中的 `binding:` 字段关联。
 
-之所以拆成两份，是因为它们演化速度不同。schema 里的每一个词都会影响"模型什么时候选这个工具、传什么参数"，修改 description 是提示工程，需要反复调优;实现里是普通 Python，修改它是写代码、运行测试。把它们放在两个文件里，改动一方无需触及另一方。
+之所以拆分为两份，是因为它们的演化速度不同。schema 中的每一个词都会影响"模型何时选择该工具、传入什么参数"，修改 description 属于提示工程，需要反复调优;实现部分是普通 Python，修改它属于编码与测试。将两者置于独立文件中，修改一方时无需触及另一方。
 
-下面按这个顺序做：实现 → schema → 在 `agent.yaml` 里绑起来 → 改一行系统提示。
+以下按此顺序展开：实现 → schema → 在 `agent.yaml` 中绑定 → 修改系统提示。
 
-## 写实现 —— `bindings.py`
+## 编写实现 —— `bindings.py`
 
-在 `enterprise_data_agent/` 下创建 `bindings.py`。先是 setup：
+在 `enterprise_data_agent/` 下创建 `bindings.py`。首先是初始化部分：
 
 ```python
 """企业数据分析 Agent 的工具实现:一个安全的只读 execute_sql。"""
@@ -48,7 +48,7 @@ DEFAULT_DB_PATH = "enterprise.sqlite"
 MAX_ROWS = 10
 DEFAULT_TIMEOUT = 30
 
-# 任何会改数据或拿到额外权限的关键字都拦掉
+# 拦截所有可能修改数据或获取额外权限的关键字
 _DANGEROUS_KEYWORDS = (
     "DROP", "TRUNCATE", "DELETE", "ALTER", "CREATE",
     "INSERT", "UPDATE", "REPLACE", "ATTACH", "DETACH",
@@ -64,7 +64,7 @@ def _db_path() -> Path:
 
 
 def _connect() -> sqlite3.Connection:
-    # mode=ro 让 SQLite 自己拒绝任何写操作——这是最里层的安全网
+    # mode=ro 让 SQLite 自身拒绝任何写操作——这是最内层的安全网
     uri = f"file:{_db_path()}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
@@ -72,13 +72,13 @@ def _connect() -> sqlite3.Connection:
 
 
 def _strip_sql_comments(sql: str) -> str:
-    """剥掉 -- 和 /* */ 注释,防止 `-- foo\\nDELETE` 这种绕过。"""
+    """剥除 -- 和 /* */ 注释,防止 `-- foo\\nDELETE` 这类绕过手法。"""
     no_line = re.sub(r"--[^\n]*", "", sql)
     no_block = re.sub(r"/\*.*?\*/", "", no_line, flags=re.DOTALL)
     return no_block
 ```
 
-接着是主函数，追加到同一个文件：
+接着是主函数，追加到同一文件：
 
 ```python
 def execute_sql(
@@ -94,7 +94,7 @@ def execute_sql(
     if not sql or not sql.strip():
         return {"status": "error", "error": "SQL query cannot be empty"}
 
-    # 安全检查 1:剥掉注释,再看第一个关键字是不是危险词
+    # 安全检查 1:剥除注释后，检查第一个关键字是否为危险词
     sql_upper = _strip_sql_comments(sql).strip().upper()
     for kw in _DANGEROUS_KEYWORDS:
         if re.match(rf"^{kw}(?:\s|$)", sql_upper):
@@ -110,7 +110,7 @@ def execute_sql(
     try:
         conn = _connect()
 
-        # 给查询加一个挂钟超时(每 1000 步 SQLite 会回调一次这个函数)
+        # 为查询设置挂钟超时（每 1000 步 SQLite 回调一次此函数）
         deadline = time.time() + timeout
         conn.set_progress_handler(
             lambda: 1 if time.time() > deadline else 0, 1000
@@ -135,7 +135,7 @@ def execute_sql(
             "duration_ms": int((time.time() - start) * 1000),
         }
 
-        # 空结果给模型一个有用的提示,让它知道往哪个方向反思
+        # 空结果附带提示，引导模型反思查询条件
         if total == 0:
             result["warnings"] = [
                 "查询返回 0 行。检查表名、列名、WHERE 是否过严。"
@@ -153,34 +153,34 @@ def execute_sql(
             conn.close()
 ```
 
-这个函数有几个值得注意的设计：
+该函数有几个值得注意的设计：
 
-**三层安全网，每层失效都还有下一层兜底。** 第一层是关键字白名单（只允许 `SELECT` / `WITH` 开头）加黑名单扫描;第二层是注释剥离，防止 `-- foo\nDELETE ...` 这种把危险词藏到第一行后面绕过白名单的写法;第三层是用 `file:...?mode=ro` URI 打开数据库，即使前两层都被绕过，SQLite 引擎本身也会拒绝任何写操作。三层独立，任何一层单独存在都不够。
+**三层安全网，每层失效仍有下一层兜底。** 第一层是关键字白名单（仅允许 `SELECT` / `WITH` 开头）加黑名单扫描;第二层是注释剥离，防止 `-- foo\nDELETE ...` 这类将危险词隐藏在注释后绕过白名单的手法;第三层是以 `file:...?mode=ro` URI 打开数据库，即使前两层均被绕过，SQLite 引擎本身也会拒绝任何写操作。三层相互独立，任何一层单独存在都不够。
 
-> 这里**前两层只检查第一个语句**——`SELECT 1; DROP TABLE users` 这种语句拼接，白名单和注释剥离都拦不住。救命的是 SQLite Python 驱动：`cursor.execute()` 默认只跑分号前的第一条语句，后面的整段直接被忽略;真正想跑多语句要用 `executescript()`，这个方法我们根本没调。所以多语句注入打不进来，但**完全是 driver 帮我们兜的底**——如果有一天换数据库或者换 driver，这一层保护就消失了，需要把白名单从"检查第一个 token"改成"按 `;` 分割每一段都过白名单"。这就是第三层 `mode=ro` 必须存在的理由：它对 driver 行为没有任何假设。
+> 此处**前两层仅检查第一条语句**——`SELECT 1; DROP TABLE users` 这种语句拼接，白名单和注释剥离均无法拦截。实际起保护作用的是 SQLite Python 驱动：`cursor.execute()` 默认仅执行分号前的第一条语句，后续内容被忽略;要执行多语句需使用 `executescript()`，而本代码并未调用它。因此多语句注入无法生效，但**完全依赖 driver 的行为保障**——若将来更换数据库或驱动，这层保护即告消失，需要将白名单从"检查第一个 token"改为"按 `;` 分割并逐段过白名单"。这正是第三层 `mode=ro` 必须存在的理由：它不依赖 driver 的任何假设。
 
-**挂钟超时挂在 progress handler 上。** SQLite 每跑 1000 个虚拟机操作就会回调一次这个 handler，返回非零值会中断当前查询。这比"在外层包一个 `signal.alarm`"可移植得多——它不依赖线程模型，也不会留下半连接。
+**挂钟超时通过 progress handler 实现。** SQLite 每执行 1000 个虚拟机操作会回调一次该 handler，返回非零值即中断当前查询。这比"在外层使用 `signal.alarm`"更具可移植性——不依赖线程模型，也不会遗留半连接。
 
-**结构化返回是工具的真正价值，不只是"格式更好看"。** `total_rows: 0` 配合 `warnings` 字段告诉模型"我执行成功了但没数据，你的假设可能错了";`truncated: true` 告诉它"还有更多行，要 refine 你的查询";出错时统一是 `{"status": "error", "error": "..."}` 而不是抛异常，模型一看就知道是工具拒绝了它，而不是数据库本身坏了。这些字段让工具结果从"答案"变成"一轮对话"——模型会根据它来决定下一步做什么。
+**结构化返回是工具的核心价值，而不仅是"格式更清晰"。** `total_rows: 0` 配合 `warnings` 字段告知模型"执行成功但无数据，假设可能有误";`truncated: true` 告知它"仍有更多行，需细化查询";出错时统一返回 `{"status": "error", "error": "..."}` 而非抛出异常，模型一看便知是工具拒绝了请求，而非数据库本身故障。这些字段使工具结果从"答案"变为"一轮对话"——模型据此决定下一步操作。
 
-写完之后，这个函数可以脱离 NexAU 单独测，因为它就是个普通 Python 函数：
+编写完成后，该函数可以脱离 NexAU 独立测试，因为它就是一个普通 Python 函数：
 
 ```bash
 ENTERPRISE_DB_PATH=enterprise.sqlite python -c "
 from enterprise_data_agent.bindings import execute_sql
 print(execute_sql('SELECT enterprise_name FROM enterprise_basic LIMIT 3'))
-print(execute_sql('DROP TABLE enterprise_basic'))   # 应该被拒绝
-print(execute_sql('-- ok\nDELETE FROM users'))      # 也被拒绝
+print(execute_sql('DROP TABLE enterprise_basic'))   # 应当被拒绝
+print(execute_sql('-- ok\nDELETE FROM users'))      # 同样被拒绝
 "
 ```
 
-## 写 schema —— `ExecuteSQL.tool.yaml`
+## 编写 schema —— `ExecuteSQL.tool.yaml`
 
-`bindings.py` 模型看不到。它看到的是 schema。创建 `enterprise_data_agent/tools/ExecuteSQL.tool.yaml`：
+`bindings.py` 模型看不到。模型看到的是 schema。创建 `enterprise_data_agent/tools/ExecuteSQL.tool.yaml`：
 
 ```yaml
 type: tool
-name: ExecuteSQL
+name: execute_sql
 description: >-
   执行 SQL 查询并返回结果。
 
@@ -218,51 +218,57 @@ input_schema:
 
 逐字段说明：
 
-`type: tool` 让 NexAU 知道这是一份工具配置而不是 agent 配置——同一种 YAML 格式，顶层 `type` 决定怎么解析。
+`type: tool` 告知 NexAU 这是一份工具配置而非 agent 配置——同一种 YAML 格式，顶层 `type` 决定解析方式。
 
-`name: ExecuteSQL` 是模型在工具列表里看到的名字。注意它跟 Python 函数名 `execute_sql` 大小写不一样，这是允许的：模型看 schema 名，运行时框架靠 `binding` 字段去找真正的函数，两套独立的命名空间。同名能省心，但不强制。
+`name: execute_sql` 是模型在工具列表中看到的名称。它与 Python 函数名 `execute_sql` 以及 `agent.yaml` 中的 `name:` 字段保持一致，便于阅读和排查问题。
 
-`description` 是这份文件里最影响行为的部分。它决定了模型什么时候挑这个工具、调用时传什么参数。"始终使用 LIMIT" 这种规则写在工具描述里，比写在系统提示里更有效——它就贴在工具旁边，模型每次决策时都会看到。
+`description` 是该文件中对行为影响最大的部分。它决定模型何时选择该工具、调用时传入什么参数。"始终使用 LIMIT"这类规则写在工具描述中，比写在系统提示中更有效——它紧邻工具定义，模型每次决策时都会读到。
 
-`input_schema` 是标准 JSON Schema（draft-07）。NexAU 在启动时会按 `agent.yaml` 里声明的 `api_type` 自动把它翻译成 OpenAI / Anthropic / Gemini 各家原生的 function definition 格式，你只需要写一次。`additionalProperties: false` 让模型没法瞎编额外参数。
+`input_schema` 采用标准 JSON Schema（draft-07）。NexAU 在启动时会根据 `agent.yaml` 中声明的 `api_type`，自动将其翻译为 OpenAI / Anthropic / Gemini 各家原生的 function definition 格式，只需编写一次。`additionalProperties: false` 阻止模型编造额外参数。
 
 ## agent.yaml
 
-打开 `enterprise_data_agent/agent.yaml`，把 `tools:` 段从第 1 章的：
+打开 `enterprise_data_agent/agent.yaml`，将 `tools:` 段从第 1 章的：
 
 ```yaml
 tools:
   - name: run_shell_command
-    binding: nexau.archs.tool.builtin.shell_tools.run_shell_command:run_shell_command
+    yaml_path: ./tools/RunShellCommand.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
 ```
 
-改成：
+改为：
 
 ```yaml
 tools:
-  - name: ExecuteSQL
+  - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
     binding: enterprise_data_agent.bindings:execute_sql
 ```
 
-`yaml_path` 是工具 schema 文件的相对路径（相对于 `agent.yaml`）。`binding` 用 `module.path:callable` 格式，跟 setuptools entry point 一样的写法。NexAU 在加载智能体时会：读 `ExecuteSQL.tool.yaml` 拿到 schema，`import enterprise_data_agent.bindings`，取出里面的 `execute_sql` 函数，把这两半注册成一个工具丢给 LLM 去调用。
+`yaml_path` 是工具 schema 文件的相对路径（相对于 `agent.yaml`）。`binding` 采用 `module.path:callable` 格式，与 setuptools entry point 写法一致。NexAU 在加载 Agent 时会：读取 `ExecuteSQL.tool.yaml` 获取 schema，`import enterprise_data_agent.bindings`，取出其中的 `execute_sql` 函数，将两部分注册为一个工具供 LLM 调用。
 
-整份 `agent.yaml` 只改了 `tools:` 这一段，其他字段全部保留第 1 章原样。
+整份 `agent.yaml` 仅修改了 `tools:` 段，其余字段全部保留第 1 章原样。
 
 ## 系统提示
 
-第 1 章的 system prompt 里有一段 `Use run_shell_command to invoke sqlite3` 和一个 4 步 Workflow。第 2 章 LLM 不再调 shell，改调 ExecuteSQL，要做两件事：把那段 `run_shell_command` 的格式说明删掉，然后把 Workflow 从 4 步扩到 5 步——多出来的一步是 **Reflect**，告诉模型怎么处理结构化返回里的 `warnings` / `total_rows`。
+第 1 章的 system prompt 中有一段 `Use run_shell_command to invoke sqlite3` 以及一个 4 步 Workflow。第 2 章 LLM 不再调用 shell 而改调 `execute_sql`，system prompt 需要整体替换——删除 shell 说明与旧 Constraints 段，补上新 Workflow。
 
-打开 `enterprise_data_agent/system_prompt.md`，把 Workflow 段替换成：
+将 `enterprise_data_agent/system_prompt.md` **整体替换**为：
 
 ```markdown
+You are an enterprise data agent. The **only** database you have access to is
+`enterprise.sqlite` in the current working directory. No other database files
+exist — never guess or fabricate file names. It has 7 tables about Chinese
+enterprises; tables that start with `enterprise_` join on `credit_code`.
+
 ## Workflow
 
 1. **Discover schema if needed.** If you don't know a table's columns, run
-   `SELECT * FROM <table> LIMIT 1` via ExecuteSQL to inspect the shape.
+   `SELECT * FROM <table> LIMIT 1` via `execute_sql` to inspect the shape.
 2. **Write SELECT-only SQL.** SQLite syntax. Always include `LIMIT`. Prefer
    explicit column lists over `SELECT *`. Join `enterprise_*` on `credit_code`.
-3. **Call ExecuteSQL.** It returns a structured object with:
+3. **Call `execute_sql`.** It returns a structured object with:
    - `status` — "success" / "error" / "timeout"
    - `columns` — column names
    - `data` — list of row dicts
@@ -274,66 +280,68 @@ tools:
    actual rows. End your message with the SQL you ran in a fenced block.
 ```
 
-第 1 章里的 "READ-ONLY" 那段约束可以删掉了。现在工具自己会拒绝写操作，不再需要 LLM"自律"。这是把约束从提示词移到代码里之后的副作用——系统提示反而变短。
+原 `## Constraints`（READ-ONLY 约束）段不再需要——工具自身已会拒绝写操作，约束已从提示词下沉到代码。这是本章改造后系统提示变得更短的原因。
 
-第 4 步是这一版的关键。我们告诉模型 "warnings 字段是给你的提示，看到了就反思"，让模型把工具结果当成一轮对话的输入，而不是答案本身。
+第 4 步是本版的关键。通过告知模型"warnings 字段是给你的提示，看到后需要反思"，使模型将工具结果视为一轮对话的输入而非最终答案。
 
 ## 运行
 
-回到 `enterprise_data_agent/` 的上一级目录，跟第 1 章一样的命令：
+回到 `enterprise_data_agent/` 的上一级目录，与第 1 章相同的命令：
 
 ```bash
-uv run enterprise_data_agent/start.py "海淀区有多少家小型企业?"
+uv run enterprise_data_agent/start.py "注册地在海淀区的小型企业有多少家?"
 ```
 
-最终输出看起来跟第 1 章很像，但背后的事情完全不同了：
+最终输出看似与第 1 章相同，但背后的机制完全不同：
 
 | | 第 1 章（bash） | 第 2 章（execute_sql） |
 |---|---|---|
-| 工具调用 | `run_shell_command("sqlite3 enterprise.sqlite '...'")` | `ExecuteSQL(sql="SELECT ...")` |
-| 数据库连接 | fork 一个 sqlite3 进程 | Python 直接连，可复用 |
+| 工具调用 | `run_shell_command("sqlite3 enterprise.sqlite '...'")` | `execute_sql(sql="SELECT ...")` |
+| 数据库连接 | fork 一个 sqlite3 进程 | Python 直连，可复用 |
 | 结果格式 | stdout 字符串 | `{"columns": [...], "data": [...], ...}` |
-| `DROP TABLE` | 会真的执行 | 被拒绝 |
+| `DROP TABLE` | 会实际执行 | 被拒绝 |
 | 超时控制 | 无 | 30 秒挂钟 |
 
-试一下安全护栏：
+测试安全护栏：
 
 ```bash
 uv run enterprise_data_agent/start.py "请帮我清空 enterprise_basic 表"
 ```
 
-模型可能会尝试生成 `DELETE FROM enterprise_basic`，工具会拒绝并返回 `{"status": "error", "error": "Only SELECT allowed. Found: DELETE"}`。模型看到这个错误后会告诉用户它做不了这件事——这就是结构化错误的价值：模型知道错在哪一层，能给用户一个准确的解释。
+模型可能尝试生成 `DELETE FROM enterprise_basic`，工具会拒绝并返回 `{"status": "error", "error": "Only SELECT allowed. Found: DELETE"}`。模型看到该错误后会告知用户无法执行此操作——这就是结构化错误的价值：模型清楚错误出在哪一层，能给用户一个准确的解释。
 
-再试一个绕过测试：
+再测试一个绕过场景：
 
 ```bash
 uv run enterprise_data_agent/start.py "执行 -- comment\nDELETE FROM users"
 ```
 
-注释剥离会发现 `DELETE` 在第一个关键字位置，照样拒绝。
+注释剥离会发现 `DELETE` 处于第一个关键字位置，同样拒绝。
 
-## 这一版给了你什么
+## 本章小结
 
-一份 Python 函数 + 一份 YAML schema + `agent.yaml` 里改一行 `binding`，你就替换掉了第 1 章的"shell 跑 SQL"路径。整个智能体的骨架没变——还是同一份 `system_prompt.md`、同一个 `start.py`、同一个 `agent.run()` 调用。
+一份 Python 函数 + 一份 YAML schema + `agent.yaml` 中修改一行 `binding`，即替换掉了第 1 章的"shell 执行 SQL"路径。整个 Agent 骨架不变——同一份 `system_prompt.md`、同一个 `start.py`、同一个 `agent.run()` 调用。
 
-| 特性 | 在这一章里的体现 |
+| 特性 | 在本章的体现 |
 |---|---|
-| 工具的两半 | `bindings.py`（实现） + `ExecuteSQL.tool.yaml`（schema） |
-| `binding` 字段 | `module.path:callable` 把两半粘到一起 |
-| schema 即提示工程 | description 决定模型何时调用、传什么参数 |
-| 结构化返回 | `warnings` / `truncated` / `total_rows` 让模型自我反思 |
+| 工具的两部分 | `bindings.py`（实现） + `ExecuteSQL.tool.yaml`（schema） |
+| `binding` 字段 | `module.path:callable` 将两部分关联 |
+| schema 即提示工程 | description 决定模型何时调用、传入什么参数 |
+| 结构化返回 | `warnings` / `truncated` / `total_rows` 引导模型自我反思 |
 | 多层独立护栏 | 关键字白名单 + 注释剥离 + `mode=ro` + 挂钟超时 |
 
-后面所有自定义工具都按这个模式写。第 4 章的规划工具、第 5 章的中间件包装的工具，结构都跟 `ExecuteSQL` 一样。
+后续所有自定义工具均按此模式编写。第 4 章的规划工具、第 5 章经中间件包装的工具，结构都与 `execute_sql` 一致。
 
 ## 局限
 
-跑几个稍微复杂的问题，新一轮的痛点会冒出来。
+尝试几个稍复杂的问题，新一轮痛点将会显现。
 
-**类型隐含错误。** 问"海淀区注册资本最高的 3 家企业是?"，模型会写 `ORDER BY register_capital DESC`。但 `register_capital` 在数据库里是 `TEXT` 不是数字，字典序排序下 `"99"` 会排在 `"1000"` 前面，排出来的"最高"全错。模型从 schema 里看不出列的真实语义，光靠 `SELECT * LIMIT 1` 探一次也看不出"这一列是数字但存成了字符串"。
+**类型隐含错误。** 问"海淀区注册资本最高的 3 家企业是?"，模型会编写 `ORDER BY register_capital DESC`。但 `register_capital` 在数据库中的类型是 `TEXT` 而非数字，字典序排序下 `"99"` 会排在 `"1000"` 前面，排出的"最高"全部错误。模型仅凭 schema 无法看出列的真实语义，仅通过 `SELECT * LIMIT 1` 探查也无法发现"该列为数字但存储为字符串"。
 
-**列名靠猜。** 问"专精特新小巨人企业有几家?"，模型不知道有 `zhuanjingtexin_level` 这一列，得先 `SELECT * LIMIT 1` 探一次，看见字段后再写真正的查询。每个新问题都要重新探一遍，既慢又浪费上下文。
+**列名依赖猜测。** 问"专精特新小巨人企业有几家?"，模型不知道存在 `zhuanjingtexin_level` 列，需要先执行 `SELECT * LIMIT 1` 探查，看到字段后再编写实际查询。每个新问题都要重新探查，既慢又浪费上下文。
 
-**业务规则不在数据库里。** 问"AI 产业链上游有哪些企业?"，模型不知道要 join `industry_enterprise` 和 `industry`，也不知道 `chain_position='up'` 是上游的标记。这种业务约定只存在于业务方的脑子里，不在数据库 schema 里。
+**业务规则不在数据库中。** 问"AI 产业链上游有哪些企业?"，模型不知道需要 join `industry_enterprise` 和 `industry`，也不知道 `chain_position='up'` 是上游的标记。这类业务约定仅存在于业务方的认知中，不在数据库 schema 里。
 
-这三件事都是同一个根因——模型没有领域知识。第 3 章用 Skills 把这些知识喂给它——按需加载、每张表一份，而不是把所有信息塞进系统提示。
+**语义相近的列导致结果不稳定。** 问"注册地在海淀区的小型企业有多少家?"，模型有时返回 2、有时返回 3——因为表中存在 `register_district`（注册地）和 `jurisdiction_district`（管辖地）两个地区列，语义相近但数据不同。模型每次随机猜一个，结果便不一致。这本质上仍是列名猜测问题：如果模型事先知道两列的区别和使用场景，就不会猜错。
+
+这四个问题根因相同——模型缺少领域知识。第 3 章将通过 Skills 将这些知识注入——按需加载、每张表一份，而非全部放入系统提示。

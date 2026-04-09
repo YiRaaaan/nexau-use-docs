@@ -38,7 +38,7 @@ def main() -> None:
 
     if len(sys.argv) > 1:
         question = " ".join(sys.argv[1:])
-        print(agent.run(question))
+        print(agent.run(message=question))
         return
 
     print("enterprise data agent ready. Type a question (Ctrl-D to exit).")
@@ -50,7 +50,7 @@ def main() -> None:
             return
         if not question:
             continue
-        print(agent.run(question))
+        print(agent.run(message=question))
 
 
 if __name__ == "__main__":

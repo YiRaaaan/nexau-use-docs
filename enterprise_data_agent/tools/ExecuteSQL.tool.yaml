@@ -1,5 +1,5 @@
 type: tool
-name: ExecuteSQL
+name: execute_sql
 description: >-
   执行 SQL 查询并返回结果。
 

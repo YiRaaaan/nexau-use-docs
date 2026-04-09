@@ -33,13 +33,13 @@ llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: openai_chat_completion
+  api_type: ${env.LLM_API_TYPE}
   temperature: 0.2
   max_tokens: 4096
   stream: true
 ```
 
-注意三个 `${env.*}` 占位符——这正是 YAML 在不同 Provider 之间保持稳定的关键：每个 Provider 唯一变化的只有 `.env` 文件。
+注意四个 `${env.*}` 占位符——这正是 YAML 在不同 Provider 之间保持稳定的关键：每个 Provider 唯一变化的只有 `.env` 文件。`max_tokens`（模型单次回复最多可生成的 token 数，超出后截断）和 `temperature`（生成随机性，0 = 最确定，1 = 最随机）在各 Provider 间语义相同，本章各节按需调整。
 
 先确认当前配置可以正常运行：
 
@@ -49,18 +49,18 @@ uv run enterprise_data_agent/start.py "海淀区有多少家企业？"
 
 确认无误，开始切换 Provider。
 
-## 6a —— 切换到 OpenAI Responses（推理模型）
+## 切换到 OpenAI Responses（推理模型）
 
 Responses API 是 OpenAI 为 `o1` / `o3` / `gpt-5` 系列推理模型（reasoning model，会在回答前先在内部进行隐藏推理，只将结论返回给用户）提供的新端点。它与 Chat Completions 使用相同的认证和 base URL，但请求结构不同，并新增了 `reasoning` block 用于调节隐藏推理的强度。
 
-**将 `llm_config` 修改为：**
+**在 `llm_config` 中新增 `reasoning` block，并删除 `temperature`：**
 
 ```yaml
 llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: openai_responses
+  api_type: ${env.LLM_API_TYPE}
   max_tokens: 4096
   stream: true
 
@@ -71,10 +71,8 @@ llm_config:
 
 变更两处：
 
-1. `api_type: openai_chat_completion` → `api_type: openai_responses`
+1. 删除 `temperature`——推理模型会忽略该参数，部分 Responses-API 端点甚至会直接拒绝它。不删除也可运行（NexAU 有 `additional_drop_params` 后备机制），但保持配置整洁更佳。
 2. 新增 `reasoning` block
-
-注意此处**删除了 `temperature`**。推理模型会忽略该参数，部分 Responses-API 端点甚至会直接拒绝它。不删除也可运行（NexAU 有 `additional_drop_params` 后备机制），但保持配置整洁更佳。
 
 | 字段 | 取值 | 用途 |
 |---|---|---|
@@ -87,6 +85,7 @@ llm_config:
 LLM_MODEL=o3-mini
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=sk-...
+LLM_API_TYPE=openai_responses
 ```
 
 **执行：**
@@ -99,18 +98,18 @@ uv run enterprise_data_agent/start.py "各 专精特新 等级有多少家企业
 
 > NexAU 还处理了 Responses API 的一个微妙差异：当工具返回图片时，图片会嵌入**工具消息内部**，而非作为后续 user 消息注入。无需关心细节——工具 YAML 不变——但这正是同一个工具在两种 API 上均可运行而无需重写的原因。
 
-## 6b —— 切换到 Anthropic Claude
+## 切换到 Anthropic Claude
 
 现在切换到 Claude。不同的 Provider、不同的 base URL、不同的认证 header——但**Agent 本身不受影响**。
 
-**修改 `llm_config`：**
+**将 `llm_config` 中的 `reasoning` block 替换为 `thinking`，并调整 `max_tokens`：**
 
 ```yaml
 llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: anthropic_chat_completion
+  api_type: ${env.LLM_API_TYPE}
   max_tokens: 16000
   stream: true
 
@@ -121,9 +120,9 @@ llm_config:
 
 与上一段相比变更三处：
 
-1. `api_type` 改为 `anthropic_chat_completion`
+1. `reasoning`（OpenAI 专有）替换为 `thinking`（Anthropic 专有）
 2. `max_tokens` 提升至 16000——Claude 的硬上限远高于 Chat Completions，extended thinking 也消耗该预算
-3. `reasoning`（OpenAI 专有）替换为 `thinking`（Anthropic 专有）
+3. `.env` 中 `LLM_API_TYPE` 改为 `anthropic_chat_completion`
 
 | 字段 | 取值 | 用途 |
 |---|---|---|
@@ -133,9 +132,10 @@ llm_config:
 **更新 `.env`：**
 
 ```dotenv
-LLM_MODEL=claude-sonnet-4-5
+LLM_MODEL=claude-sonnet-4-6
 LLM_BASE_URL=https://api.anthropic.com
 LLM_API_KEY=sk-ant-...
+LLM_API_TYPE=anthropic_chat_completion
 ```
 
 **执行：**
@@ -159,18 +159,18 @@ llm_config:
 
 对企业数据分析 Agent 而言意义显著——系统提示加 7 个 Skill 合计数千 token 且内容不变。缓存后首次调用全价，后续仅为零头。
 
-## 6c —— 切换到 Google Gemini
+## 切换到 Google Gemini
 
 同样的模式，切换 Provider。
 
-**修改 `llm_config`：**
+**将 `thinking` block 替换为 `thinkingConfig`：**
 
 ```yaml
 llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: gemini_rest
+  api_type: ${env.LLM_API_TYPE}
   max_tokens: 8192
   stream: true
 
@@ -181,8 +181,8 @@ llm_config:
 
 结构已经熟悉：
 
-1. `api_type: gemini_rest`
-2. `thinking`（Anthropic）替换为 `thinkingConfig`（Gemini 专有字段名）
+1. `thinking`（Anthropic）替换为 `thinkingConfig`（Gemini 专有字段名）
+2. `.env` 中 `LLM_API_TYPE` 改为 `gemini_rest`
 3. `max_tokens: 8192`——Gemini 的合理中位值
 
 | 字段 | 取值 | 用途 |
@@ -196,6 +196,7 @@ llm_config:
 LLM_MODEL=gemini-2.5-pro
 LLM_BASE_URL=https://generativelanguage.googleapis.com
 LLM_API_KEY=...
+LLM_API_TYPE=gemini_rest
 ```
 
 **执行：**
@@ -206,51 +207,49 @@ uv run enterprise_data_agent/start.py "哪条产业链的企业最多？"
 
 NexAU 将工具 YAML 翻译为 Gemini `functionDeclarations`，将 `functionCall` parts 解析回来，然后执行循环。同一个 Agent，第三种协议。
 
-## 6d —— 切换到自托管或第三方网关
+## 切换到自托管或第三方网关
 
 并非每次都需要前沿 Provider。`openai_chat_completion` 之所以是默认值，是因为几乎所有第三方网关都支持该协议。以下为几个具体示例。
 
+以下网关均兼容 OpenAI 协议，`agent.yaml` 中的 `api_type: ${env.LLM_API_TYPE}` 无需修改，只需调整 `.env`：
+
 **Azure OpenAI：**
 
-```yaml
-llm_config:
-  model: nex-agi/deepseek-v3.1-nex-1
-  base_url: https://<resource>.openai.azure.com/openai/deployments/<deployment>
-  api_key: ${env.AZURE_OPENAI_API_KEY}
-  api_type: openai_chat_completion
+```dotenv
+LLM_MODEL=nex-agi/deepseek-v3.1-nex-1
+LLM_BASE_URL=https://<resource>.openai.azure.com/openai/deployments/<deployment>
+LLM_API_KEY=<your-azure-key>
+LLM_API_TYPE=openai_chat_completion
 ```
 
 **OpenRouter**（单一 key 访问多种模型）：
 
-```yaml
-llm_config:
-  model: anthropic/claude-sonnet-4-5
-  base_url: https://openrouter.ai/api/v1
-  api_key: ${env.OPENROUTER_API_KEY}
-  api_type: openai_chat_completion
+```dotenv
+LLM_MODEL=anthropic/claude-sonnet-4-6
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=<your-openrouter-key>
+LLM_API_TYPE=openai_chat_completion
 ```
 
 **vLLM / 本地模型服务：**
 
-```yaml
-llm_config:
-  model: meta-llama/Llama-3.1-70B-Instruct
-  base_url: http://localhost:8000/v1
-  api_key: not-used
-  api_type: openai_chat_completion
+```dotenv
+LLM_MODEL=meta-llama/Llama-3.1-70B-Instruct
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_API_KEY=not-used
+LLM_API_TYPE=openai_chat_completion
 ```
 
 **Groq：**
 
-```yaml
-llm_config:
-  model: llama-3.3-70b-versatile
-  base_url: https://api.groq.com/openai/v1
-  api_key: ${env.GROQ_API_KEY}
-  api_type: openai_chat_completion
+```dotenv
+LLM_MODEL=llama-3.3-70b-versatile
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_API_KEY=<your-groq-key>
+LLM_API_TYPE=openai_chat_completion
 ```
 
-以上均使用 `api_type: openai_chat_completion`——NexAU 分派的依据是协议格式，而非 URL 上的品牌。
+以上均使用 `openai_chat_completion`——NexAU 分派的依据是协议格式，而非 URL 上的品牌。
 
 ## 工具调用的翻译机制
 
@@ -300,7 +299,7 @@ tool_call_mode: xml
 from nexau import LLMConfig
 
 cfg = LLMConfig(
-    model="claude-sonnet-4-5",
+    model="claude-sonnet-4-6",
     base_url="https://api.anthropic.com",
     api_key=os.environ["ANTHROPIC_API_KEY"],
     api_type="anthropic_chat_completion",

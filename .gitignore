@@ -1,11 +1,15 @@
 # Cloudflare Wrangler local state / cache
 .wrangler/
+dist/
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+row_counts.json
+schema_dump.json
+skills_table_7/
 
 # Env
 .env

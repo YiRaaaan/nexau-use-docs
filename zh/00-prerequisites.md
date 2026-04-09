@@ -2,8 +2,6 @@
 
 本页列出后续 10 章所需的全部前置工具。**请全部安装完成后再进入第 1 章**，避免操作过程中被 `command not found` 打断节奏。
 
-> **版本锁定**：本教程全部基于 **NexAU v0.4.1**（[Release](https://github.com/nex-agi/NexAU/releases/tag/v0.4.1)）。跟随本教程时请安装该版本，避免 API 漂移导致命令或配置无法复现。
-
 ## 必备组件
 
 | 组件 | 用途 | 检查命令 |
@@ -44,7 +42,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 也可直接 `pip install uv`。若安装失败，后续所有 `uv pip install` / `uv run` 均可替换为 `pip install` / `python`。
 
-## 安装 NexAU v0.4.1
+## 安装 NexAU
 
 直接从 GitHub Release 下载 wheel 安装，无需克隆源码：
 
@@ -56,7 +54,7 @@ mkdir nexau-tutorial && cd nexau-tutorial
 uv venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
 
-# 安装 NexAU v0.4.1
+# 安装 NexAU
 uv pip install https://github.com/nex-agi/NexAU/releases/download/v0.4.1/nexau-0.4.1-py3-none-any.whl
 
 # 顺手装上教程需要的 python-dotenv
@@ -69,7 +67,7 @@ uv pip install python-dotenv
 
 ```bash
 python3 -c "from importlib.metadata import version; print(version('nexau'))"
-# 0.4.1
+# 应输出版本号，例如 0.4.1
 ```
 
 **本教程后续所有命令都从 `nexau-tutorial/` 目录发出。** 后续章节会在该目录下逐步构建 `enterprise_data_agent/` 子目录。
@@ -88,13 +86,14 @@ sqlite3 --version
 
 ## LLM API key
 
-本教程默认使用 `nex-agi/deepseek-v3.1-nex-1` 模型，但**任何 OpenAI 兼容端点**均可运行——OpenAI、Azure OpenAI、Together、Groq、OpenRouter、本地 vLLM 皆可。需要准备以下三项：
+本教程默认使用 `nex-agi/deepseek-v3.1-nex-1` 模型，但**任何 OpenAI 兼容端点**均可运行——OpenAI、Azure OpenAI、Together、Groq、OpenRouter、本地 vLLM 皆可。需要准备以下四项：
 
 - `LLM_MODEL` —— 模型名，例如 `gpt-4o-mini` / `claude-sonnet-4-5` / `nex-agi/deepseek-v3.1-nex-1`
 - `LLM_BASE_URL` —— API 入口，例如 `https://api.openai.com/v1`
 - `LLM_API_KEY` —— 你的密钥
+- `LLM_API_TYPE` —— 协议类型，例如 `openai_chat_completion`（默认）、`anthropic_chat_completion`、`gemini_rest`
 
-第 1 章将指导你把这三项写入 `.env` 文件。
+第 1 章将指导你把这四项写入 `.env` 文件。
 
 ## 检查清单
 
@@ -103,7 +102,7 @@ sqlite3 --version
 ```bash
 python3 --version                           # ≥ 3.10
 uv --version                                # 或 pip --version
-python3 -c "from importlib.metadata import version; print(version('nexau'))"  # 0.4.1
+python3 -c "from importlib.metadata import version; print(version('nexau'))"  # 应输出版本号
 sqlite3 --version
 ```
 

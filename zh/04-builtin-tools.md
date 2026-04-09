@@ -4,7 +4,7 @@
 >
 > **本章结束时**：面对跨多张表的复杂问题，Agent 会先列出 todo list，逐步执行并打勾，最后给出回答。
 >
-> **本章最重要的概念**：**内置工具可以只写 `binding`、不写 `yaml_path`**——框架从函数签名自动推断 schema。这是复用内置工具最快的方式。
+> **本章最重要的概念**：**内置工具的 `binding` 指向框架自带的 Python 实现，`yaml_path` 指向自行编写的 schema**——复用实现、自定义说明书，是挂载内置工具的标准方式。
 
 ## 第 3 章的痛点回顾
 
@@ -37,33 +37,15 @@ NexAU 在 `nexau.archs.tool.builtin` 下自带一批通用工具，均可通过 
 | | `search_file_content` | `nexau.archs.tool.builtin.file_tools:search_file_content` | grep 风格内容搜索 |
 | **规划** | `write_todos` | `nexau.archs.tool.builtin.session_tools:write_todos` | 维护任务清单 |
 
-> v0.4.1 实际可用的工具数量远多于上表。完整列表可通过 `python3 -c "import pkgutil, nexau.archs.tool.builtin as b; [print(m.name) for m in pkgutil.iter_modules(b.__path__)]"` 查看。
+> 实际可用的工具数量远多于上表。完整列表可通过 `python3 -c "import pkgutil, nexau.archs.tool.builtin as b; [print(m.name) for m in pkgutil.iter_modules(b.__path__)]"` 查看。
 
 **对 enterprise data agent 而言**，文件 / 搜索类工具暂时用不到（只需查询数据库，不涉及本地文件读写）。`write_todos` 是关键。
 
 ---
 
-## 挂载内置工具的两种方式
+## 挂载内置工具
 
-NexAU 支持两种写法：
-
-### 方式 A：只写 `binding`（最快）
-
-```yaml
-tools:
-  - name: write_todos
-    binding: nexau.archs.tool.builtin.session_tools:write_todos
-```
-
-**不提供 `yaml_path`**。框架从 Python 函数的签名 + docstring 自动生成 schema：
-
-- 函数参数 → tool parameters
-- 参数的类型注解 → 字段类型
-- docstring 第一段 → tool description
-
-适合：**信任内置工具的默认描述已足够好**。
-
-### 方式 B：用 `yaml_path` 覆盖 schema
+与第 1 章的 `run_shell_command` 一样，内置工具也需要 `yaml_path` + `binding` 两部分：
 
 ```yaml
 tools:
@@ -72,9 +54,9 @@ tools:
     binding: nexau.archs.tool.builtin.session_tools:write_todos
 ```
 
-适合：**希望为模型提供更长、更贴合领域的使用说明**。`binding` 仍指向内置实现，但模型看到的"说明书"由你自行撰写。
+`binding` 指向 NexAU 自带的 Python 实现，`yaml_path` 指向自行编写的 schema。这种方式的好处是：**`binding` 复用内置实现无需写代码，但模型看到的"说明书"由你自行撰写**——可以针对具体场景提供更精确的使用说明。
 
-本章采用**方式 B**，因为多表数据分析的规划场景与通用 todo 不完全一致，自行编写 schema 收益最大。
+本章的 `write_todos` 即采用此方式：多表数据分析的规划场景与通用 todo 不完全一致，自行编写 schema 收益最大。
 
 ---
 
@@ -138,7 +120,7 @@ input_schema:
   $schema: http://json-schema.org/draft-07/schema#
 ```
 
-> **格式与第 2 章 ExecuteSQL 完全一致**——顶层 `input_schema:`，下面是标准 JSON Schema（draft-07）。NexAU 所有 `*.tool.yaml` 均使用同一个字段，不存在第二种写法。
+> **格式与第 2 章 `execute_sql` 完全一致**——顶层 `input_schema:`，下面是标准 JSON Schema（draft-07）。NexAU 所有 `*.tool.yaml` 均使用同一个字段，不存在第二种写法。
 
 > **关键设计**：description 中将 "When to use" 和 "When NOT to use" 写得**高度具体**，并与数据分析场景绑定（"2+ tables"、"first query failed"）。若仅写"用于追踪任务"，模型会**滥用**——对简单问题也列 todo，浪费 token。
 
@@ -196,7 +178,7 @@ nexau.archs.tool.builtin.session_tools:write_todos
 第 2 步为新增。两个关键点：
 
 - **"2+ tables OR multiple queries"** —— 触发条件
-- **"Skip this for trivially simple, single-query questions"** —— 反触发条件，防止模型对"海淀区有多少家小型企业"这类问题也创建 todo
+- **"Skip this for trivially simple, single-query questions"** —— 反触发条件，防止模型对"注册地在海淀区的小型企业有多少家"这类问题也创建 todo
 
 ---
 
@@ -236,8 +218,7 @@ trace（一次完整调用中所有事件按时间顺序排成的列表）会显
 |---|---|
 | **内置工具家族** | shell / file / session / 规划，位于 `nexau.archs.tool.builtin.*` |
 | **`binding` 的模块路径机制** | 与自定义工具完全一致，无特殊待遇 |
-| **只写 binding 的快捷方式** | 框架从函数签名自动生成 schema |
-| **用 yaml_path 覆盖 schema** | 为内置工具提供场景化描述 |
+| **`yaml_path` + `binding`** | 复用内置实现，自定义场景化 schema |
 | **write_todos 是外化工作记忆** | 多步任务的链式思考稳定剂 |
 | **触发条件需写入 prompt** | 缺少 prompt 引导，模型不会主动使用规划工具 |
 

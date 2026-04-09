@@ -1,18 +1,17 @@
 type: agent
 name: enterprise_data_agent
 description: enterprise data agent over the North Nova enterprise SQLite mirror.
-max_context_tokens: 200000
-max_iterations: 50
 
 system_prompt: ./system_prompt.md
-system_prompt_type: jinja
+system_prompt_type: file
+max_iterations: 30
 tool_call_mode: structured
 
 llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: openai_chat_completion
+  api_type: ${env.LLM_API_TYPE}
   temperature: 0.2
   max_tokens: 4096
   stream: true

@@ -17,6 +17,10 @@ cp -R zh "$DIST/"
 cp enterprise.sqlite "$DIST/"
 cp enterprise.sqlite "$DIST/zh/"
 
+# 教程 Skills 文件:打包成 zip 供读者下载
+(cd enterprise_data_agent && zip -r "../$DIST/skills.zip" skills/)
+cp "$DIST/skills.zip" "$DIST/zh/"
+
 # 可选:首页/README(docsify 没用到可以删掉这一行)
 cp README.md "$DIST/" 2>/dev/null || true
 
