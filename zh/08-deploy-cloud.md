@@ -33,30 +33,30 @@ NexAU Cloud 的部署模型是**项目（Project） → 版本（Version） → 
 | **Version** | 一次打包上传的快照。改 prompt 或 binding 就发一个新 Version，旧的可回滚 |
 | **Activate** | 把某个 Version 设为"当前生效的"。Playground 链接和 API Key 永远打到这个激活版本 |
 
-**没有 git push、没有 CI**——就是在控制台上拖一个 `.tar.gz`。
+**没有 git push、没有 CI**——就是在控制台上拖一个 `.zip`。
 
 ## 第 1 步：打包项目
 
-回到 `nexau-tutorial/`，把 `enterprise_data_agent/` 和教程用到的示例数据库一起打成一个 `.tar.gz`：
+回到 `nexau-tutorial/`，把 `enterprise_data_agent/` 和教程用到的示例数据库一起打成一个 `.zip`：
 
 ```bash
 cd nexau-tutorial
 
 # 演示环境里把示例数据库一并打进去，方便云端直接验证
-tar --exclude='enterprise_data_agent/__pycache__' \
-    --exclude='enterprise_data_agent/.venv' \
-    --exclude='enterprise_data_agent/output' \
-    -czf enterprise_data_agent-v1.0.0.tar.gz \
-    enterprise_data_agent/ \
-    enterprise.sqlite
+zip -r enterprise_data_agent-v1.0.0.zip \
+    enterprise_data_agent \
+    enterprise.sqlite \
+    -x "enterprise_data_agent/__pycache__/*" \
+       "enterprise_data_agent/.venv/*" \
+       "enterprise_data_agent/output/*"
 ```
 
-> **Windows / 没有 tar?** 用 `zip -r enterprise_data_agent-v1.0.0.zip enterprise_data_agent enterprise.sqlite -x "enterprise_data_agent/__pycache__/*" "enterprise_data_agent/output/*"`，Cloud 同时支持 `.tar.gz` 和 `.zip`。
+> **Cloud 只接受 `.zip`**。tar / tar.gz 会被拒绝，解包器写的是 zip。macOS / Linux / Windows 都自带 `zip` 命令，直接用即可。
 
 验证包中是否包含所需文件：
 
 ```bash
-tar -tzf enterprise_data_agent-v1.0.0.tar.gz | head -20
+unzip -l enterprise_data_agent-v1.0.0.zip | head -20
 ```
 
 至少应该看到：
@@ -81,43 +81,77 @@ enterprise.sqlite
 
 ## 第 2 步：登录 Cloud 控制台
 
-邮箱密码或 OAuth（GitHub / Google）登录。第一次进来落在空的 Projects 列表页。
+打开 Cloud 首页，点右上角"登录"。
+
+![Cloud 首页](../screenshots/homepage-zh.png)
+
+邮箱密码或 OAuth（GitHub / Google）登录。
+
+![登录页](../screenshots/login.png)
+
+第一次进来落在空的 Agents 列表页。
+
+![空的 Agents 列表](../screenshots/agent-list-empty.png)
 
 > **没有账号?** 登录页点"注册"。账号免费，前几个小项目不收费。
 
 ## 第 3 步：新建 Project
 
-点右上角 **Create Project**：
+点右上角 **+ New Agent**，弹出 Create New Project 对话框：
+
+![Create New Project 对话框](../screenshots/new-agent-dialog.png)
 
 | 字段 | 填写内容 |
 |---|---|
 | **Name** | `enterprise_data_agent`（必填，URL 里会用到） |
 | **Description** | 一句话说明，例如"基于 7 张企业表的企业数据分析 + PPT 生成 Agent" |
 
-提交后进入 project 的 Workspace 页：左侧是 Versions 列表（空），右侧是 Playground（灰色——还没有激活版本）。
+![填好的 Create Project 对话框](../screenshots/create-project-filled.png)
+
+提交后会立刻弹出一个"Project Created Successfully"对话框，展示本 project 的 **Access Key + Secret Key**——这是第 9 章要用的那对 Key，**Secret Key 只显示一次，请立刻复制存入密码管理器**。
+
+![项目创建成功，展示 AK/SK](../screenshots/project-created-aksk.png)
+
+关闭对话框后，Agents 列表多出了刚建的 project：
+
+![Agents 列表多了一项](../screenshots/agent-list-with-project.png)
+
+点进去进入 project 的 Workspace 页：左侧是 Versions 列表（空），右侧是 Playground（灰色——还没有激活版本）。
+
+![空的 Workspace onboarding 页](../screenshots/workspace-onboarding.png)
 
 ## 第 4 步：上传第一个 Version
 
-点 **Create Version**：
+点 **Create Version**，弹出对话框：
+
+![Create Version 对话框](../screenshots/create-version-dialog.png)
 
 | 字段 | 填写内容 |
 |---|---|
 | **Tag** | `v1.0.0`（自行定义的版本号，回滚靠它） |
-| **Artifact** | 刚才那个 `enterprise_data_agent-v1.0.0.tar.gz` |
+| **Artifact** | 刚才那个 `enterprise_data_agent-v1.0.0.zip` |
+
+![填好 tag 和 artifact 的 Create Version 对话框](../screenshots/create-version-filled.png)
 
 点上传后，前端会：
 
 1. 跟后端要一个**预签名上传 URL**
-2. 把 `.tar.gz` 直接 PUT 到对象存储（进度条会动）
+2. 把 `.zip` 直接 PUT 到对象存储（进度条会动）
 3. 上传完给后端发一个"确认完成"请求
 
 **直传到对象存储，不走后端转发**——包大几百 MB 也没事。
 
 完成后 Version 列表多一行 `v1.0.0`，状态 **Inactive**。
 
+![新建 Version 出现在列表中、状态为 Inactive](../screenshots/version-created-inactive.png)
+
 ## 第 5 步：激活
 
-在 `v1.0.0` 这一行点 **Activate**。后端会：
+在 `v1.0.0` 这一行点 **Activate**，弹出确认对话框：
+
+![Activate 确认对话框](../screenshots/activate-confirm.png)
+
+后端会：
 
 1. 从对象存储拉包、解压
 2. 启动一个运行时容器，挂进 `enterprise_data_agent/`
@@ -126,9 +160,15 @@ enterprise.sqlite
 
 `agent.yaml` 有错（比如 binding 路径打错）激活会失败，Version 行变红，旁边是具体报错——通常是一行 Python ImportError 或 yaml.YAMLError。**修正后重新打包，上传一个新 tag**（`v1.0.1`）再激活，不要在原 Version 上反复尝试。
 
-激活成功后，右侧 Playground 亮起来。
+激活成功后，Version 行状态变为 **Active**，右侧 Playground 亮起来。
+
+![Version 已激活](../screenshots/version-activated.png)
 
 ## 第 6 步：在 Playground 里验证一次
+
+切到左侧 **Playground** 标签，会看到一个 `System_Idle` 的空白会话页——点 **+ New Session** 创建一个会话：
+
+![Playground idle 页](../screenshots/playground-idle.png)
 
 Playground 的输入框等价于你本地的 `uv run enterprise_data_agent/start.py "..."`。输入：
 
@@ -143,7 +183,9 @@ Playground 的输入框等价于你本地的 `uv run enterprise_data_agent/start
 - 调了几次 `execute_sql`、参数是什么、返回了什么
 - 每一步用了多少 token
 
-**Trace 面板是 Cloud 跟本地最大的差别。** 以后调 prompt 主要靠它，不再靠在终端 print。
+**Trace 面板是 Cloud 跟本地最大的差别。** 以后调 prompt 主要靠它，不再靠在终端 print。左侧 **Observe** 标签是独立的 Trace 浏览器——按 session / trace 两级列出，第三列是 Trace Inspector，点任意 trace 即可查看完整的事件流。
+
+![Observe 页（空）](../screenshots/observe-empty.png)
 
 再尝试第 7 章的 Mode B：
 
@@ -167,11 +209,9 @@ https://<你的 cloud 域名>/agents/<project-id>/<version-id>/workspaces/build
 
 记下 `project_id` 和你刚才填的 `tag`（`v1.0.0`）。
 
-**2. 一对 Access Key + Secret Key** —— 在 Project 设置的 **Keys** 标签页，点 **Create Key**：
+**2. 一对 Access Key + Secret Key** —— 就是第 3 步创建 project 后弹出的那对。若当时没保存 Secret Key，可以在左侧 **Config → Basic Information** 的 **API KEYS** 区域点 **+ Create Key** 重新生成一对：
 
-| 字段 | 填写内容 |
-|---|---|
-| **Name** | `prod-readonly`（随意命名，仅供自身辨识） |
+![Config 页的 Basic Information + API Keys + LLM Configuration 区](../screenshots/config-basic-keys-llm.png)
 
 生成后会显示一对：
 
@@ -183,6 +223,10 @@ NEXAU_SECRET_KEY=sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 > **Secret Key 只显示一次。** 关掉对话框就无法再查看，请立刻存进密码管理器或 secret store。丢失后只能 reset 重新生成。
 
 这是 **AK/SK** 模式（跟 AWS S3、阿里云 OSS 同一套思路），作用范围是**这个 project**。同 project 下所有 active version 共享这一对 Key——无需每个版本单独生成。
+
+> **同一个 Config 页还能做什么?** LLM Configuration 区选当前 project 使用的 LLM Provider 和模型；再往下的 **Environment Variables** 区管理项目级环境变量（数据库连接串、第三方 API Key 等）——这些不进版本包，Cloud 运行时注入。
+>
+> ![Config 页下半部分：环境变量 + 删除 Project](../screenshots/config-envvars.png)
 
 > **第 9 章**用这对 Key 从外部代码调智能体。**第 10 章**用另一种 Key（Personal Access Token，绑用户）自动化发版。两种 Key 解决不同的问题，注意区分。
 
@@ -207,7 +251,7 @@ NEXAU_SECRET_KEY=sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ## 局限与权衡
 
-**重发版的成本是"重新打包 + 上传"。** 改一个字也要走完整的 tar + upload + activate。密集调 prompt 时先在本地用第 1–7 章的工具链调到差不多，再上云做最后一公里的 trace 验证。**不要把云当本地 IDE 用。**
+**重发版的成本是"重新打包 + 上传"。** 改一个字也要走完整的 zip + upload + activate。密集调 prompt 时先在本地用第 1–7 章的工具链调到差不多，再上云做最后一公里的 trace 验证。**不要把云当本地 IDE 用。**
 
 **没有 hot reload。** 上传新版本后旧的运行时容器会被换掉，进行中的会话会断开。生产上挑流量低的时候发版。
 

@@ -10,7 +10,7 @@
 
 第 3 章末尾的跨表问题：
 
-> "找出海淀区所有专精特新小巨人企业，列出它们的主营产品、最近一轮融资金额，并按融资金额降序排列。"
+> "找出海淀区所有专精特新小巨人企业，列出它们的主营产品和近期股权融资额（recent_equity_financing），并按融资额降序排列。"
 
 模型现在知识充足——它会按顺序读取 `enterprise_basic` / `enterprise_product` / `enterprise_financing` 三个 Skill。但接下来它会**直接尝试一次写出三表 join**，往往出问题：
 
@@ -185,7 +185,7 @@ nexau.archs.tool.builtin.session_tools:write_todos
 ## 执行跨表查询
 
 ```bash
-uv run enterprise_data_agent/start.py "找出海淀区所有专精特新小巨人企业，列出它们的主营产品、最近一轮融资金额，并按融资金额降序排列。"
+uv run enterprise_data_agent/start.py "找出海淀区所有专精特新小巨人企业，列出它们的主营产品和近期股权融资额（recent_equity_financing），并按融资额降序排列。"
 ```
 
 trace（一次完整调用中所有事件按时间顺序排成的列表）会显示模型先调用一次 `write_todos`：
@@ -195,8 +195,8 @@ trace（一次完整调用中所有事件按时间顺序排成的列表）会显
   "todos": [
     {"id": "t1", "content": "查海淀区专精特新小巨人企业 (enterprise_basic)", "status": "in_progress"},
     {"id": "t2", "content": "用 credit_code join enterprise_product 拿主营产品", "status": "pending"},
-    {"id": "t3", "content": "用 credit_code join enterprise_financing 拿最近一轮融资金额", "status": "pending"},
-    {"id": "t4", "content": "按融资金额降序排，输出最终结果", "status": "pending"}
+    {"id": "t3", "content": "用 credit_code join enterprise_financing 拿近期股权融资额", "status": "pending"},
+    {"id": "t4", "content": "按融资额降序排，输出最终结果", "status": "pending"}
   ]
 }
 ```

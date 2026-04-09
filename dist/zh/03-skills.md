@@ -403,7 +403,7 @@ WHERE i.chain_id = (SELECT id FROM industry WHERE name LIKE '%人工智能%' AND
 
 让模型回答一个跨多张表的复杂问题：
 
-> "找出海淀区所有专精特新小巨人企业，列出它们的主营产品、最近一轮融资金额，并按融资金额降序排列。"
+> "找出海淀区所有专精特新小巨人企业，列出它们的主营产品和近期股权融资额（recent_equity_financing），并按融资额降序排列。"
 
 模型现在会：
 

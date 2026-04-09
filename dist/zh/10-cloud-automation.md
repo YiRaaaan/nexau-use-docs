@@ -1,13 +1,13 @@
 # 第 10 章 · 用 REST 自动化发版
 
-**TL;DR**：建一个 **Personal Access Token**（PAT），用它走 Backend API 的几个端点——建版本、获取预签名 URL（presigned URL，服务端生成的一次性上传地址，客户端无需额外认证即可直接 PUT 文件）、PUT 直传 tar 包、激活。整套发版流程一段 200 行 Python 或一段 GitHub Actions yaml 即可完成。
+**TL;DR**：建一个 **Personal Access Token**（PAT），用它走 Backend API 的几个端点——建版本、获取预签名 URL（presigned URL，服务端生成的一次性上传地址，客户端无需额外认证即可直接 PUT 文件）、PUT 直传 zip 包、激活。整套发版流程一段 200 行 Python 或一段 GitHub Actions yaml 即可完成。
 
 > **本章假设**你已经走完第 8 章——有 project、有 project_id、知道怎么手动发一个 version。若尚未完成，请先回到[第 8 章](./08-deploy-cloud.md)。
 
 ## 最终成果
 
-1. **`scripts/deploy.py`**：接受 project_id、tag 和一个 tar 文件路径，完成"建 version → 获取 URL → 上传 → confirm → activate"五步
-2. **`.github/workflows/deploy.yml`**：监听 main 分支的 push，执行 `tar` + `python scripts/deploy.py`，打一个 `vYYYY.MM.DD-<sha>` 的版本标签
+1. **`scripts/deploy.py`**：接受 project_id、tag 和一个 zip 文件路径，完成"建 version → 获取 URL → 上传 → confirm → activate"五步
+2. **`.github/workflows/deploy.yml`**：监听 main 分支的 push，执行 `zip` + `python scripts/deploy.py`，打一个 `vYYYY.MM.DD-<sha>` 的版本标签
 3. **无需再打开浏览器拖文件**：`git push` 两分钟后，同事就能在 Playground 看到新版本
 
 从改完 prompt 到用户能用上，**一次 push 即可完成**。
@@ -29,7 +29,15 @@ control plane 的认证有两种：
 
 ## 第 1 步：建一个 PAT
 
-Cloud 控制台 **Settings → Personal Access Tokens → Create Token**：
+点右上角用户菜单进入 **Account Center**：
+
+![Account Center 页](../screenshots/account-center.png)
+
+往下滚到 **Access Tokens** 卡片，点 **+ New Token**：
+
+![Access Tokens 卡片（空）](../screenshots/access-tokens-pat.png)
+
+在弹出的对话框里填写：
 
 | 字段 | 填写内容 |
 |---|---|
@@ -56,7 +64,7 @@ NEXAU_PAT=nau_pat_01HXXXXXXXXXXXXXXXXXXXXXXXXX
 |---|---|---|---|
 | 1 | `POST` | `/api/projects/{project_id}/versions` | 建一个空 version，返回 `version_id` |
 | 2 | `POST` | `/api/projects/{project_id}/versions/{version_id}/artifact/upload-url` | 获取一个预签名上传 URL |
-| 3 | `PUT` | `<上一步返回的 URL>` | 把 tar 包直传到对象存储 |
+| 3 | `PUT` | `<上一步返回的 URL>` | 把 zip 包直传到对象存储 |
 | 4 | `POST` | `/api/projects/{project_id}/versions/{version_id}/artifact/confirm` | 告诉后端"传输完毕，请校验" |
 | 5 | `PUT` | `/api/projects/{project_id}/versions/{version_id}/activate` | 激活这个 version |
 
@@ -96,7 +104,7 @@ def get_upload_url(project_id: str, version_id: str, content_length: int) -> dic
         f"{API_BASE}/api/projects/{project_id}/versions/{version_id}/artifact/upload-url",
         headers={**HEADERS, "Content-Type": "application/json"},
         json={
-            "content_type": "application/x-tar",
+            "content_type": "application/zip",
             "content_length": content_length,
         },
         timeout=30,
@@ -106,7 +114,7 @@ def get_upload_url(project_id: str, version_id: str, content_length: int) -> dic
 
 
 def upload_artifact(upload_info: dict, file_path: Path) -> None:
-    """Step 3: PUT the tar to the presigned URL."""
+    """Step 3: PUT the zip to the presigned URL."""
     url = upload_info["upload_url"]
     headers = upload_info.get("upload_headers") or {}
 
@@ -168,7 +176,7 @@ def deploy(project_id: str, tag: str, file_path: Path) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("用法: python scripts/deploy.py <project_id> <tag> <tar_file>", file=sys.stderr)
+        print("用法: python scripts/deploy.py <project_id> <tag> <zip_file>", file=sys.stderr)
         sys.exit(1)
 
     deploy(sys.argv[1], sys.argv[2], Path(sys.argv[3]))
@@ -181,13 +189,14 @@ export NEXAU_API_BASE="https://api.nexau.example"
 export NEXAU_PAT="nau_pat_xxxxxxxx"
 
 cd nexau-tutorial
-tar --exclude='enterprise_data_agent/__pycache__' \
-    --exclude='enterprise_data_agent/.venv' \
-    --exclude='enterprise_data_agent/output' \
-    -czf enterprise_data_agent.tar.gz enterprise_data_agent/ \
-    enterprise.sqlite
+zip -r enterprise_data_agent.zip \
+    enterprise_data_agent \
+    enterprise.sqlite \
+    -x "enterprise_data_agent/__pycache__/*" \
+       "enterprise_data_agent/.venv/*" \
+       "enterprise_data_agent/output/*"
 
-python scripts/deploy.py "<your-project-id>" "v1.0.5" enterprise_data_agent.tar.gz
+python scripts/deploy.py "<your-project-id>" "v1.0.5" enterprise_data_agent.zip
 ```
 
 输出格式大致如下：
@@ -203,7 +212,7 @@ python scripts/deploy.py "<your-project-id>" "v1.0.5" enterprise_data_agent.tar.
 ✓ deployed v1.0.5 → version_id=01HXX...
 ```
 
-通常 5–15 秒，主要时间在打 tar 和上传。
+通常 5–15 秒，主要时间在打 zip 和上传。
 
 ## 第 4 步：接进 GitHub Actions
 
@@ -242,11 +251,12 @@ jobs:
 
       - name: Pack agent bundle
         run: |
-          tar --exclude='enterprise_data_agent/__pycache__' \
-              --exclude='enterprise_data_agent/.venv' \
-              --exclude='enterprise_data_agent/output' \
-              -czf enterprise_data_agent.tar.gz enterprise_data_agent/ \
-              enterprise.sqlite
+          zip -r enterprise_data_agent.zip \
+              enterprise_data_agent \
+              enterprise.sqlite \
+              -x "enterprise_data_agent/__pycache__/*" \
+                 "enterprise_data_agent/.venv/*" \
+                 "enterprise_data_agent/output/*"
 
       - name: Deploy to NexAU Cloud
         env:
@@ -254,7 +264,7 @@ jobs:
           NEXAU_PAT: ${{ secrets.NEXAU_PAT }}
           PROJECT_ID: ${{ secrets.NEXAU_PROJECT_ID }}
         run: |
-          python scripts/deploy.py "$PROJECT_ID" "${{ steps.tag.outputs.tag }}" enterprise_data_agent.tar.gz
+          python scripts/deploy.py "$PROJECT_ID" "${{ steps.tag.outputs.tag }}" enterprise_data_agent.zip
 ```
 
 在 GitHub repo 的 **Settings → Secrets → Actions** 加三个 secret：
@@ -300,7 +310,7 @@ POST 请求体：
 |---|---|
 | 控制平面 = REST | "改东西"的所有操作都在 `/api/*`，认证用 PAT，curl 即可调用 |
 | PAT 是 user-scoped | 它能做你登录浏览器能做的任何事——比 AK/SK 危险得多，**必须放 secret store + 设过期** |
-| 三步上传是直传 | tar 包大也没事，Backend 不当中转 |
+| 三步上传是直传 | zip 包大也没事，Backend 不当中转 |
 | Activation 是单独一步 | 上传成功 ≠ 激活——upload 和 activate 解耦，你可以"先传几个版本备用，需要哪个再激活哪个"，支持冷备和回滚 |
 | 发版幂等 | 用日期+sha 当 tag 之后，同一个 commit 重发会因为 tag 冲突直接失败，不会发出两个一样的版本 |
 

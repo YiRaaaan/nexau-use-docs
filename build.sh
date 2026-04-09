@@ -10,6 +10,7 @@ mkdir -p "$DIST"
 cp index.html "$DIST/"
 cp _sidebar.md "$DIST/"
 cp -R zh "$DIST/"
+cp -R screenshots "$DIST/"
 
 # 教程示例数据库:让读者直接从站点下载
 # 同时拷一份到 zh/ 下,这样 markdown 里相对链接 enterprise.sqlite 在

@@ -159,7 +159,9 @@ data: [DONE]
 | `TOOL_RESULT` | 工具返回的结果 |
 | `IMAGE_MESSAGE` | 模型返回了一张图 |
 
-> **完整事件清单**在 `services/agent-runtime/.../events.py`（自托管直接查看代码），或 Cloud 控制台的 **Docs → SSE Events**。**90% 的应用只用 `TEXT_MESSAGE_CONTENT`**——delta 拼起来就是给用户看的回复，其它事件用来做 UI 动效（比如显示"正在调用工具…"）。
+> **完整事件清单**在 `services/agent-runtime/.../events.py`（自托管直接查看代码），或 Cloud 控制台右上角 **API DOCS** 按钮打开的文档页——里面有完整的事件类型图和字段说明。**90% 的应用只用 `TEXT_MESSAGE_CONTENT`**——delta 拼起来就是给用户看的回复，其它事件用来做 UI 动效（比如显示"正在调用工具…"）。
+>
+> ![Cloud 控制台的 API Docs 页（SSE Events 部分）](../screenshots/api-docs.png)
 
 ## 第 5 步：把它写成一段 Python
 
@@ -317,7 +319,7 @@ curl -u "$NEXAU_ACCESS_KEY:$NEXAU_SECRET_KEY" \
 
 第 8、9 章解决了"**人用**"和"**别的系统用**"。还差一件——**自动发版**。每次改完 prompt 都打开浏览器拖文件，并非工程化的做法。
 
-[第 10 章](./10-cloud-automation.md)讲用 PAT 从命令行或 CI 走完"build tar → 创建 version → 上传 artifact → activate"全过程，接进 GitHub Actions 几十行 yaml 即可。
+[第 10 章](./10-cloud-automation.md)讲用 PAT 从命令行或 CI 走完"build zip → 创建 version → 上传 artifact → activate"全过程，接进 GitHub Actions 几十行 yaml 即可。
 
 ## 延伸阅读
 
