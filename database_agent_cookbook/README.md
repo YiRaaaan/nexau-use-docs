@@ -1,5 +1,7 @@
 # Database Agent Cookbook
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YiRaaaan/nexau-use-docs/blob/main/database_agent_cookbook/database_agent_cookbook.ipynb)
+
 > From any SQLite database to a natural-language-queryable NexAU Agent in 5 minutes.
 
 For a detailed walkthrough of **why** each component is designed the way it is, see the [Jupyter Notebook](./database_agent_cookbook.ipynb).
