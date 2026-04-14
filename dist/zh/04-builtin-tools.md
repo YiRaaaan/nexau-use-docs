@@ -128,13 +128,21 @@ input_schema:
 
 ## 在 `agent.yaml` 中挂载
 
-将第 3 章的 `tools:` 块改为：
+先把 `max_iterations` 从 `30` 调到 `50`：
+
+```yaml
+max_iterations: 50
+```
+
+引入 `write_todos` 后，模型每次记录和更新任务都会消耗迭代轮次。一个 3 张表 join 的问题，流程变为：write_todos → read_skill ×3 → execute_sql ×3 → write_todos 更新 ×3 → 最终回答，轻松超过 30 轮。调到 50 留足余量。
+
+然后将第 3 章的 `tools:` 块改为：
 
 ```yaml
 tools:
   - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: enterprise_data_agent.bindings:execute_sql
+    binding: tools.execute_sql:execute_sql
 
   # 新增：内置 write_todos，schema 由 yaml_path 覆盖
   - name: write_todos
@@ -150,7 +158,7 @@ nexau.archs.tool.builtin.session_tools:write_todos
           Python 模块                   函数名
 ```
 
-冒号左边是 Python import 路径，右边是函数名。这与第 2 章所写的 `enterprise_data_agent.bindings:execute_sql` 是**完全相同的机制**——内置工具没有特殊待遇，只是恰好位于 NexAU 自己的包中。
+冒号左边是 Python import 路径，右边是函数名。这与第 2 章所写的 `tools.execute_sql:execute_sql` 是**完全相同的机制**——内置工具没有特殊待遇，只是恰好位于 NexAU 自己的包中。
 
 ---
 
@@ -226,9 +234,10 @@ trace（一次完整调用中所有事件按时间顺序排成的列表）会显
 
 | | 第 3 章 | 第 4 章 |
 |---|---|---|
+| `max_iterations` | 30 | **50** |
 | `agent.yaml` `tools:` | 1 个 | **+1 个 write_todos** |
 | `tools/*.tool.yaml` | 1 个 | **+1 个 TodoWrite.tool.yaml** |
-| `bindings.py` | 100 行 | **未改动**（write_todos 使用内置实现） |
+| `tools/execute_sql.py` | ~270 行 | **未改动**（write_todos 使用内置实现） |
 | `system_prompt.md` Workflow | 6 步 | **+1 步 Track tasks** |
 | Skills | 7 个 | **未改动** |
 

@@ -19,8 +19,21 @@ cp enterprise.sqlite "$DIST/"
 cp enterprise.sqlite "$DIST/zh/"
 
 # 教程 Skills 文件:打包成 zip 供读者下载
-(cd enterprise_data_agent && zip -r "../$DIST/skills.zip" skills/)
+(cd enterprise_data_agent && zip -r "../$DIST/skills.zip" skills/ \
+  -x "skills/pptx/scripts/office/schemas/*")
 cp "$DIST/skills.zip" "$DIST/zh/"
+
+# 完整 agent 制品包:读者解压即可运行（仅需 npm install pptxgenjs）
+# 把 enterprise.sqlite 也放一份到 agent 目录里,供 Cloud 运行时的
+# tools/execute_sql.py 通过 Path(__file__).parent.parent 找到。
+cp enterprise.sqlite enterprise_data_agent/enterprise.sqlite
+zip -r "$DIST/enterprise_data_agent.zip" \
+  enterprise_data_agent/ \
+  enterprise.sqlite \
+  -x "enterprise_data_agent/skills/pptx/scripts/office/schemas/*" \
+     "*__pycache__*" "*.pyc" "*/.DS_Store"
+rm enterprise_data_agent/enterprise.sqlite
+cp "$DIST/enterprise_data_agent.zip" "$DIST/zh/"
 
 # 可选:首页/README(docsify 没用到可以删掉这一行)
 cp README.md "$DIST/" 2>/dev/null || true

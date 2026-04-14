@@ -1,8 +1,8 @@
-# 第 9 章 · 从外部 REST 调用 Cloud Agent
+# 第 8 章 · 从外部 REST 调用 Cloud Agent
 
-**TL;DR**：用第 8 章获取的 Access Key + Secret Key，通过 `Authorization: Basic base64(ak:sk)` 调 Agent Gateway 的两个端点——`POST /agent-api/sessions` 获取 `session_id`，`POST /agent-api/chat` 发消息获取 SSE（Server-Sent Events，服务端单向推送事件的 HTTP 协议）流。**没有 SDK，就是普通 HTTP**，任何能发请求的语言都能接。
+**TL;DR**：用第 7 章获取的 Access Key + Secret Key，通过 `Authorization: Basic base64(ak:sk)` 调 Agent Gateway 的两个端点——`POST /agent-api/sessions` 获取 `session_id`，`POST /agent-api/chat` 发消息获取 SSE（Server-Sent Events，服务端单向推送事件的 HTTP 协议）流。**没有 SDK，就是普通 HTTP**，任何能发请求的语言都能接。
 
-> **本章假设**你已经走完第 8 章，在 Cloud 上有一个激活版本和一对 AK/SK。若尚未完成，请先回到[第 8 章](./08-deploy-cloud.md)。
+> **本章假设**你已经走完第 7 章，在 Cloud 上有一个激活版本和一对 AK/SK。若尚未完成，请先回到[第 7 章](zh/07-deploy-cloud.md)。
 
 ## 最终成果
 
@@ -26,7 +26,7 @@ Cloud 内部分两个服务：
 
 | 服务 | 用途 | 访问方式 | 认证 |
 |---|---|---|---|
-| **Backend**（控制平面） | 建项目、发版本、改 env vars、查看历史 trace | `https://<cloud-host>/api/*` | JWT cookie（浏览器）或 PAT（自动化，第 10 章） |
+| **Backend**（控制平面） | 建项目、发版本、改 env vars、查看历史 trace | `https://<cloud-host>/api/*` | JWT cookie（浏览器）或 PAT（自动化，第 9 章） |
 | **Agent Gateway**（数据平面） | 与正在运行的 agent 通信（sessions / chat / stop / files） | `https://<gateway-host>/agent-api/*` | **AK/SK Basic auth**（本章主角） |
 
 > **gateway-host 在哪?** 自托管通常是 `gateway.<你的域名>`，或跟 backend 同域不同 path。SaaS 在 **Settings → API Endpoints** 页有完整 URL。本章用 `https://gateway.nexau.example` 占位，运行代码前替换成你自己的。
@@ -44,7 +44,7 @@ Cloud 内部分两个服务：
 
 为什么要先建 session?因为 NexAU 的 agent 是有状态的——一次会话对应一个**沙箱（sandbox）**，里面有工作目录、临时文件、上下文。`session_id` 就是这个沙箱的句柄。同一个 session 多次 chat 状态保留，不同 session 互相隔离。
 
-> **session 跨版本。** 第 8 章激活了 `v1.0.0`，之后改 prompt 发 `v1.0.1`，旧 session 仍然有效——下次 chat 指定新的 `version_tag`，session 会切到新版本继续运行。设计意图：session 绑用户（distinct_id），不绑代码版本。
+> **session 跨版本。** 第 7 章激活了 `v1.0.0`，之后改 prompt 发 `v1.0.1`，旧 session 仍然有效——下次 chat 指定新的 `version_tag`，session 会切到新版本继续运行。设计意图：session 绑用户（distinct_id），不绑代码版本。
 
 ## 第 1 步：认证格式
 
@@ -117,7 +117,7 @@ curl -u "$NEXAU_ACCESS_KEY:$NEXAU_SECRET_KEY" \
 | `messages` | ✅ | 跟 OpenAI 一样的 `[{role, content}]` 数组，亦可直接传一个字符串 |
 | `stream` | ❌（默认 true） | true 走 SSE，false 一次性返回 JSON |
 | `source` | ❌ | `"user"`（默认）或 `"playground"`，给 trace 打标用 |
-| `agent` | ❌ | 多 agent 项目里指定哪个 agent。第 1–8 章只有一个，无需填写 |
+| `agent` | ❌ | 多 agent 项目里指定哪个 agent。第 1–7 章只有一个，无需填写 |
 
 > **为什么 `version_tag` 不在 session 里而在 chat 里?** session 和 version 解耦：同一个 session 可以先打 `v1.0.0` 运行几轮，再切到 `v1.0.1`（灰度对比）。session 是沙箱句柄，version 是代码句柄，生命周期不同。
 
@@ -130,13 +130,13 @@ data: {"type":"RUN_STARTED","run_id":"run_xxx"}
 
 data: {"type":"TEXT_MESSAGE_CONTENT","delta":"我先看一下 enterprise_basic 表..."}
 
-data: {"type":"TOOL_CALL_START","tool_name":"execute_sql","tool_call_id":"call_1"}
+data: {"type":"TOOL_CALL_START","tool_call_name":"execute_sql","tool_call_id":"call_1"}
 
 data: {"type":"TOOL_CALL_ARGS","delta":"{\"sql\":\"SELECT COUNT(*) FROM enterprise_basic..."}
 
 data: {"type":"TOOL_CALL_END","tool_call_id":"call_1"}
 
-data: {"type":"TOOL_RESULT","tool_call_id":"call_1","content":"[{\"count\": 2}]"}
+data: {"type":"TOOL_CALL_RESULT","tool_call_id":"call_1","content":"[{\"count\": 2}]"}
 
 data: {"type":"TEXT_MESSAGE_CONTENT","delta":"注册地在海淀区的小型企业共有 2 家..."}
 
@@ -156,7 +156,7 @@ data: [DONE]
 | `TEXT_MESSAGE_END` | 一段文字结束 |
 | `REASONING_CONTENT` | o1 / DeepSeek-R1 这类模型的思考过程，字段 `delta` |
 | `TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END` | 工具调用，参数也是分块流式给的 |
-| `TOOL_RESULT` | 工具返回的结果 |
+| `TOOL_CALL_RESULT` | 工具返回的结果 |
 | `IMAGE_MESSAGE` | 模型返回了一张图 |
 
 > **完整事件清单**在 `services/agent-runtime/.../events.py`（自托管直接查看代码），或 Cloud 控制台右上角 **API DOCS** 按钮打开的文档页——里面有完整的事件类型图和字段说明。**90% 的应用只用 `TEXT_MESSAGE_CONTENT`**——delta 拼起来就是给用户看的回复，其它事件用来做 UI 动效（比如显示"正在调用工具…"）。
@@ -228,9 +228,9 @@ def handle_event(event: dict) -> None:
         sys.stdout.flush()
 
     elif etype == "TOOL_CALL_START":
-        print(f"\n[tool_call] {event.get('tool_name')}", flush=True)
+        print(f"\n[tool_call] {event.get('tool_call_name')}", flush=True)
 
-    elif etype == "TOOL_RESULT":
+    elif etype == "TOOL_CALL_RESULT":
         content = event.get("content", "")
         preview = content[:80] + ("…" if len(content) > 80 else "")
         print(f"[tool_result] {preview}", flush=True)
@@ -260,7 +260,7 @@ export NEXAU_VERSION_TAG="v1.0.0"
 python call_agent.py "注册地在海淀区的小型企业有多少家?"
 ```
 
-**就这些。** 不到 80 行便将第 1–8 章那个智能体接进了任何能安装 Python 的环境。换成 Node.js / Go / Rust 是同一回事——只是换个 SSE 解析库。
+**就这些。** 不到 80 行便将第 1–7 章那个智能体接进了任何能安装 Python 的环境。换成 Node.js / Go / Rust 是同一回事——只是换个 SSE 解析库。
 
 ## 进阶：停一个失控的 run
 
@@ -317,11 +317,11 @@ curl -u "$NEXAU_ACCESS_KEY:$NEXAU_SECRET_KEY" \
 
 ## 接下来
 
-第 8、9 章解决了"**人用**"和"**别的系统用**"。还差一件——**自动发版**。每次改完 prompt 都打开浏览器拖文件，并非工程化的做法。
+第 7、8 章解决了"**人用**"和"**别的系统用**"。还差一件——**自动发版**。每次改完 prompt 都打开浏览器拖文件，并非工程化的做法。
 
-[第 10 章](./10-cloud-automation.md)讲用 PAT 从命令行或 CI 走完"build zip → 创建 version → 上传 artifact → activate"全过程，接进 GitHub Actions 几十行 yaml 即可。
+[第 9 章](zh/09-cloud-automation.md)讲用 PAT 从命令行或 CI 走完"build zip → 创建 version → 上传 artifact → activate"全过程，接进 GitHub Actions 几十行 yaml 即可。
 
 ## 延伸阅读
 
-- [第 8 章 · 部署到 NexAU Cloud](./08-deploy-cloud.md) —— 获取 AK/SK 的地方
-- [第 10 章 · 用 REST 自动化发版](./10-cloud-automation.md) —— 把发版接进 CI/CD
+- [第 7 章 · 部署到 NexAU Cloud](zh/07-deploy-cloud.md) —— 获取 AK/SK 的地方
+- [第 9 章 · 用 REST 自动化发版](zh/09-cloud-automation.md) —— 把发版接进 CI/CD

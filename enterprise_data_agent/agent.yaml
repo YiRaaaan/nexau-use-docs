@@ -4,28 +4,42 @@ description: enterprise data agent over the North Nova enterprise SQLite mirror.
 
 system_prompt: ./system_prompt.md
 system_prompt_type: file
-max_iterations: 30
+max_iterations: 80
 tool_call_mode: structured
 
 llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: ${env.LLM_API_TYPE}
+  api_type: openai_chat_completion
   temperature: 0.2
-  max_tokens: 4096
   stream: true
 
 tools:
   # SELECT executor — same name/schema/return shape as NexEvo's ChatBI tool.
   - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: enterprise_data_agent.bindings:execute_sql
+    binding: tools.execute_sql:execute_sql
 
   # Built-in planning scratchpad for multi-table queries.
   - name: write_todos
     yaml_path: ./tools/TodoWrite.tool.yaml
     binding: nexau.archs.tool.builtin.session_tools:write_todos
+
+  # Ch6: let the agent write generated JS scripts to disk.
+  - name: write_file
+    yaml_path: ./tools/WriteFile.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:write_file
+
+  # Ch6: execute `node generate.js` to produce .pptx files.
+  - name: run_shell_command
+    yaml_path: ./tools/RunShellCommand.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+  # Ch6: let the agent read pptxgenjs.md sub-doc when needed.
+  - name: read_file
+    yaml_path: ./tools/ReadFile.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
 
 # One skill per table — gives the model authoritative knowledge of the
 # schema, business semantics, common values, and example queries.
@@ -37,13 +51,6 @@ skills:
   - ./skills/industry
   - ./skills/industry_enterprise
   - ./skills/users
+  # Ch6: PPT design and generation workflow skill.
+  - ./skills/pptx
 
-middlewares:
-  # Truncate huge query results so a single SELECT * can't blow the context.
-  - import: nexau.archs.main_sub.execution.middleware.long_tool_output:LongToolOutputMiddleware
-    params:
-      max_output_chars: 8000
-      head_lines: 30
-      tail_lines: 10
-      head_chars: 4000
-      tail_chars: 2000

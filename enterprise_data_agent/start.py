@@ -22,9 +22,12 @@ HERE = Path(__file__).resolve().parent
 # so OPENAI_API_KEY and friends are available by the time the agent runs.
 load_dotenv(HERE.parent / ".env")
 
-# Make sure tool bindings (`enterprise_data_agent.bindings:...`) resolve when running
+# Make sure tool bindings (`tools.execute_sql:...`) resolve when running
 # the script directly without installing this directory as a package.
+# HERE.parent → project root (for nexau imports)
+# HERE → agent dir (so `tools.execute_sql` resolves as `tools/execute_sql.py`)
 sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE))
 
 # Default the SQLite path to enterprise.sqlite next to this folder.
 os.environ.setdefault("ENTERPRISE_DB_PATH", str(HERE.parent / "enterprise.sqlite"))

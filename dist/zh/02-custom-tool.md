@@ -18,7 +18,7 @@ NexAU 中每个工具对应两个文件：
 | 部分 | 文件 | 受众 |
 |---|---|---|
 | schema | `tools/<Name>.tool.yaml` | 面向 LLM：名称、描述、参数 |
-| 实现 | `bindings.py` 中的一个函数 | 面向机器：实际执行的代码 |
+| 实现 | `tools/<name>.py` 中的一个函数 | 面向机器：实际执行的代码 |
 
 两者通过 `agent.yaml` 中的 `binding:` 字段关联。
 
@@ -26,15 +26,17 @@ NexAU 中每个工具对应两个文件：
 
 以下按此顺序展开：实现 → schema → 在 `agent.yaml` 中绑定 → 修改系统提示。
 
-## 编写实现 —— `bindings.py`
+## 编写实现 —— `tools/execute_sql.py`
 
-在 `enterprise_data_agent/` 下创建 `bindings.py`。首先是初始化部分：
+在 `enterprise_data_agent/tools/` 下创建 `execute_sql.py`（schema 和实现放在同一个 `tools/` 目录中）。首先是初始化部分：
 
 ```python
 """企业数据分析 Agent 的工具实现:一个安全的只读 execute_sql。"""
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import re
 import sqlite3
@@ -42,10 +44,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 DB_PATH_ENV = "ENTERPRISE_DB_PATH"
-DEFAULT_DB_PATH = "enterprise.sqlite"
+# 相对于本文件解析: tools/execute_sql.py → parent.parent = agent 根目录。
+# Cloud 上 enterprise.sqlite 位于 agent 根目录; 本地 start.py 通过
+# ENTERPRISE_DB_PATH 环境变量覆盖。
+DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "enterprise.sqlite")
 
 MAX_ROWS = 10
+MAX_OUTPUT_LENGTH = 50000   # 截断阈值,防止大查询撑爆上下文
 DEFAULT_TIMEOUT = 30
 
 # 拦截所有可能修改数据或获取额外权限的关键字
@@ -59,7 +67,10 @@ _DANGEROUS_KEYWORDS = (
 def _db_path() -> Path:
     p = Path(os.environ.get(DB_PATH_ENV, DEFAULT_DB_PATH)).expanduser()
     if not p.exists():
-        raise FileNotFoundError(f"SQLite DB not found at {p}")
+        raise FileNotFoundError(
+            f"SQLite DB not found at {p}. Set {DB_PATH_ENV} or run from a "
+            f"directory containing enterprise.sqlite."
+        )
     return p
 
 
@@ -87,70 +98,170 @@ def execute_sql(
     max_rows: int | None = None,
 ) -> dict[str, Any]:
     """执行一个 SELECT,返回结构化结果。"""
-    start = time.time()
-    timeout = timeout or DEFAULT_TIMEOUT
-    max_rows = max_rows or MAX_ROWS
+    start_time = time.time()
+
+    if timeout is None:
+        timeout = DEFAULT_TIMEOUT
+    if max_rows is None:
+        max_rows = MAX_ROWS
 
     if not sql or not sql.strip():
-        return {"status": "error", "error": "SQL query cannot be empty"}
+        return {
+            "status": "error",
+            "error": "SQL query cannot be empty",
+            "duration_ms": int((time.time() - start_time) * 1000),
+        }
 
     # 安全检查 1:剥除注释后，检查第一个关键字是否为危险词
-    sql_upper = _strip_sql_comments(sql).strip().upper()
-    for kw in _DANGEROUS_KEYWORDS:
-        if re.match(rf"^{kw}(?:\s|$)", sql_upper):
-            return {"status": "error",
-                    "error": f"Only SELECT allowed. Found: {kw}"}
+    sql_cleaned_upper = _strip_sql_comments(sql).strip().upper()
+    for keyword in _DANGEROUS_KEYWORDS:
+        if re.match(rf"^{keyword}(?:\s|$)", sql_cleaned_upper):
+            return {
+                "status": "error",
+                "error": f"Only SELECT queries are allowed. Found: {keyword}",
+                "sql": sql,
+                "duration_ms": int((time.time() - start_time) * 1000),
+            }
 
     # 安全检查 2:必须以 SELECT 或 WITH 开头
-    if not re.match(r"^(SELECT|WITH)\b", sql_upper):
-        return {"status": "error",
-                "error": "Only SELECT/WITH queries allowed."}
+    if not re.match(r"^(SELECT|WITH)\b", sql_cleaned_upper):
+        return {
+            "status": "error",
+            "error": "Only SELECT or WITH ... SELECT queries are allowed.",
+            "sql": sql,
+            "duration_ms": int((time.time() - start_time) * 1000),
+        }
 
-    conn = None
+    connection = None
     try:
-        conn = _connect()
+        connection = _connect()
 
         # 为查询设置挂钟超时（每 1000 步 SQLite 回调一次此函数）
         deadline = time.time() + timeout
-        conn.set_progress_handler(
-            lambda: 1 if time.time() > deadline else 0, 1000
-        )
 
-        cursor = conn.execute(sql)
-        cols = [d[0] for d in cursor.description] if cursor.description else []
+        def _interrupt_if_expired() -> int:
+            return 1 if time.time() > deadline else 0
+
+        connection.set_progress_handler(_interrupt_if_expired, 1000)
+
+        cursor = connection.execute(sql)
+        col_names = [d[0] for d in cursor.description] if cursor.description else []
         rows = cursor.fetchall()
 
-        total = len(rows)
-        truncated = total > max_rows
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        total_rows = len(rows)
+        truncated = total_rows > max_rows
         rows_to_return = rows[:max_rows] if truncated else rows
 
-        result = {
+        # bytes/bytearray → hex, 其他非 JSON 原生类型 → str
+        data: list[dict[str, Any]] = []
+        for row in rows_to_return:
+            d = dict(row)
+            for key, value in list(d.items()):
+                if isinstance(value, (bytes, bytearray)):
+                    d[key] = value.hex()
+                elif not isinstance(
+                    value, (str, int, float, bool, type(None), list, dict)
+                ):
+                    d[key] = str(value)
+            data.append(d)
+
+        command_status = f"SELECT {total_rows}"
+
+        warnings: list[str] = []
+        if total_rows == 0:
+            warnings.append(
+                "The SQL query returned an empty result. Please review and "
+                "confirm the following:\n"
+                "1. Table selection: Ensure the FROM clause references the "
+                "correct table name\n"
+                "2. Column selection: Verify column names exist in the target "
+                "table\n"
+                "3. WHERE clause conditions: Check if filter conditions are too "
+                "restrictive or incorrect\n"
+                "4. Data availability: Consider if the columns you're querying "
+                "are empty."
+            )
+        if truncated:
+            warnings.append(
+                "Query results were truncated due to row limit. Consider "
+                "limiting the number of columns or adding more specific WHERE "
+                "clauses."
+            )
+
+        result: dict[str, Any] = {
             "status": "success",
+            "command_status": command_status,
             "sql": sql,
-            "columns": cols,
-            "data": [dict(r) for r in rows_to_return],
-            "row_count": len(rows_to_return),
-            "total_rows": total,
+            "columns": col_names,
+            "data": data,
+            "row_count": len(data),
+            "total_rows": total_rows,
             "truncated": truncated,
-            "duration_ms": int((time.time() - start) * 1000),
+            "duration_ms": duration_ms,
         }
 
-        # 空结果附带提示，引导模型反思查询条件
-        if total == 0:
-            result["warnings"] = [
-                "查询返回 0 行。检查表名、列名、WHERE 是否过严。"
-            ]
+        # 长度截断:逐行缩减直到 JSON 序列化结果不超过 MAX_OUTPUT_LENGTH
+        if len(json.dumps(result, ensure_ascii=False)) > MAX_OUTPUT_LENGTH:
+            while (
+                len(data) > 1
+                and len(json.dumps(result, ensure_ascii=False)) > MAX_OUTPUT_LENGTH
+            ):
+                data = data[:-1]
+                result["data"] = data
+                result["row_count"] = len(data)
+                result["truncated"] = True
+            if not any("row limit" in w for w in warnings):
+                warnings.append(
+                    "Query results were truncated due to length limit. "
+                    "Consider limiting the number of columns or adding more "
+                    "specific WHERE clauses."
+                )
+
+        if warnings:
+            result["warnings"] = warnings
+
+        logger.info(
+            "SQL executed successfully: rows=%d, duration=%dms",
+            total_rows,
+            duration_ms,
+        )
         return result
 
     except sqlite3.OperationalError as e:
+        duration_ms = int((time.time() - start_time) * 1000)
         msg = str(e)
         if "interrupted" in msg.lower():
-            return {"status": "timeout",
-                    "error": f"Query timed out after {timeout}s"}
-        return {"status": "error", "error": msg, "sql": sql}
+            return {
+                "status": "timeout",
+                "error": f"Query timed out after {timeout} seconds",
+                "sql": sql,
+                "duration_ms": duration_ms,
+            }
+        logger.error("SQL execution error: %s", msg)
+        return {
+            "status": "error",
+            "error": msg,
+            "error_type": type(e).__name__,
+            "sql": sql,
+            "duration_ms": duration_ms,
+        }
+
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error("SQL execution error: %s", str(e))
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "sql": sql,
+            "duration_ms": duration_ms,
+        }
+
     finally:
-        if conn is not None:
-            conn.close()
+        if connection is not None:
+            connection.close()
 ```
 
 该函数有几个值得注意的设计：
@@ -159,7 +270,15 @@ def execute_sql(
 
 > 此处**前两层仅检查第一条语句**——`SELECT 1; DROP TABLE users` 这种语句拼接，白名单和注释剥离均无法拦截。实际起保护作用的是 SQLite Python 驱动：`cursor.execute()` 默认仅执行分号前的第一条语句，后续内容被忽略;要执行多语句需使用 `executescript()`，而本代码并未调用它。因此多语句注入无法生效，但**完全依赖 driver 的行为保障**——若将来更换数据库或驱动，这层保护即告消失，需要将白名单从"检查第一个 token"改为"按 `;` 分割并逐段过白名单"。这正是第三层 `mode=ro` 必须存在的理由：它不依赖 driver 的任何假设。
 
+**数据库路径通过 `Path(__file__)` 解析。** `DEFAULT_DB_PATH` 基于文件自身位置计算：`tools/execute_sql.py` → `parent` = `tools/` → `parent.parent` = agent 根目录 → 拼上 `enterprise.sqlite`。这保证了本地运行和 Cloud 部署都能找到数据库——本地通过 `start.py` 设置 `ENTERPRISE_DB_PATH` 环境变量覆盖;Cloud 上 `enterprise.sqlite` 在打包时已被拷入 agent 根目录（第 7 章会讲到）。
+
 **挂钟超时通过 progress handler 实现。** SQLite 每执行 1000 个虚拟机操作会回调一次该 handler，返回非零值即中断当前查询。这比"在外层使用 `signal.alarm`"更具可移植性——不依赖线程模型，也不会遗留半连接。
+
+**`MAX_OUTPUT_LENGTH` 防止大查询撑爆上下文。** 即使行数没超 `max_rows`，某些列（如长文本、JSON）可能使整个返回体非常大。函数会在 JSON 序列化后检查长度，超过 50000 字符就从尾部逐行删减，直到安全范围内。
+
+**`bytes` → `hex` 转换。** SQLite 的 `BLOB` 列在 Python 中返回 `bytes`，直接放入 JSON 会报错。函数遍历每行，将 `bytes`/`bytearray` 转为十六进制字符串，其他非 JSON 原生类型转为 `str`。
+
+**`command_status` 字段。** 返回 `"SELECT {total_rows}"` 格式的状态字符串，使返回结构与 NexAU 的 trace 系统兼容。
 
 **结构化返回是工具的核心价值，而不仅是"格式更清晰"。** `total_rows: 0` 配合 `warnings` 字段告知模型"执行成功但无数据，假设可能有误";`truncated: true` 告知它"仍有更多行，需细化查询";出错时统一返回 `{"status": "error", "error": "..."}` 而非抛出异常，模型一看便知是工具拒绝了请求，而非数据库本身故障。这些字段使工具结果从"答案"变为"一轮对话"——模型据此决定下一步操作。
 
@@ -167,7 +286,7 @@ def execute_sql(
 
 ```bash
 ENTERPRISE_DB_PATH=enterprise.sqlite python -c "
-from enterprise_data_agent.bindings import execute_sql
+from enterprise_data_agent.tools.execute_sql import execute_sql
 print(execute_sql('SELECT enterprise_name FROM enterprise_basic LIMIT 3'))
 print(execute_sql('DROP TABLE enterprise_basic'))   # 应当被拒绝
 print(execute_sql('-- ok\nDELETE FROM users'))      # 同样被拒绝
@@ -176,7 +295,7 @@ print(execute_sql('-- ok\nDELETE FROM users'))      # 同样被拒绝
 
 ## 编写 schema —— `ExecuteSQL.tool.yaml`
 
-`bindings.py` 模型看不到。模型看到的是 schema。创建 `enterprise_data_agent/tools/ExecuteSQL.tool.yaml`：
+`tools/execute_sql.py` 模型看不到。模型看到的是 schema。创建 `enterprise_data_agent/tools/ExecuteSQL.tool.yaml`：
 
 ```yaml
 type: tool
@@ -243,10 +362,10 @@ tools:
 tools:
   - name: execute_sql
     yaml_path: ./tools/ExecuteSQL.tool.yaml
-    binding: enterprise_data_agent.bindings:execute_sql
+    binding: tools.execute_sql:execute_sql
 ```
 
-`yaml_path` 是工具 schema 文件的相对路径（相对于 `agent.yaml`）。`binding` 采用 `module.path:callable` 格式，与 setuptools entry point 写法一致。NexAU 在加载 Agent 时会：读取 `ExecuteSQL.tool.yaml` 获取 schema，`import enterprise_data_agent.bindings`，取出其中的 `execute_sql` 函数，将两部分注册为一个工具供 LLM 调用。
+`yaml_path` 是工具 schema 文件的相对路径（相对于 `agent.yaml`）。`binding` 采用 `module.path:callable` 格式，与 setuptools entry point 写法一致。NexAU 在加载 Agent 时会：读取 `ExecuteSQL.tool.yaml` 获取 schema，`import tools.execute_sql`，取出其中的 `execute_sql` 函数，将两部分注册为一个工具供 LLM 调用。
 
 整份 `agent.yaml` 仅修改了 `tools:` 段，其余字段全部保留第 1 章原样。
 
@@ -324,7 +443,7 @@ uv run enterprise_data_agent/start.py "执行 -- comment\nDELETE FROM users"
 
 | 特性 | 在本章的体现 |
 |---|---|
-| 工具的两部分 | `bindings.py`（实现） + `ExecuteSQL.tool.yaml`（schema） |
+| 工具的两部分 | `tools/execute_sql.py`（实现） + `ExecuteSQL.tool.yaml`（schema） |
 | `binding` 字段 | `module.path:callable` 将两部分关联 |
 | schema 即提示工程 | description 决定模型何时调用、传入什么参数 |
 | 结构化返回 | `warnings` / `truncated` / `total_rows` 引导模型自我反思 |

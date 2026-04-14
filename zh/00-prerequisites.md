@@ -86,14 +86,15 @@ sqlite3 --version
 
 ## LLM API key
 
-本教程默认使用 `nex-agi/deepseek-v3.1-nex-1` 模型，但**任何 OpenAI 兼容端点**均可运行——OpenAI、Azure OpenAI、Together、Groq、OpenRouter、本地 vLLM 皆可。需要准备以下四项：
+本教程默认使用 `nex-agi/deepseek-v3.1-nex-1` 模型，但**任何 OpenAI 兼容端点**均可运行——OpenAI、Azure OpenAI、Together、Groq、OpenRouter、本地 vLLM 皆可。需要准备以下三项：
 
 - `LLM_MODEL` —— 模型名，例如 `gpt-4o-mini` / `claude-sonnet-4-5` / `nex-agi/deepseek-v3.1-nex-1`
 - `LLM_BASE_URL` —— API 入口，例如 `https://api.openai.com/v1`
 - `LLM_API_KEY` —— 你的密钥
-- `LLM_API_TYPE` —— 协议类型，例如 `openai_chat_completion`（默认）、`anthropic_chat_completion`、`gemini_rest`
 
-第 1 章将指导你把这四项写入 `.env` 文件。
+协议类型 `api_type` 直接在 `agent.yaml` 中写死为 `openai_chat_completion`，无需通过环境变量传入。如需切换到 Anthropic / Gemini 等其他协议，参见附录 [LLM 协议切换](llm-api-types.md)。
+
+第 1 章将指导你把这三项写入 `.env` 文件。
 
 ## 检查清单
 
@@ -108,4 +109,4 @@ sqlite3 --version
 
 此外，需要准备好一个可用的 LLM API key。
 
-准备完毕，进入 [第 1 章](./01-bash-nl2sql.md)。
+准备完毕，进入 [第 1 章](zh/01-bash-nl2sql.md)。

@@ -16,10 +16,10 @@ NexAU 适合以下场景：
 
 教程分成两段：
 
-1. **第 1–7 章**：把本地 Agent 从最小可用逐步打磨到生产可用，并扩展 PPT 生成能力
-2. **第 8–10 章**：接入云端部署、外部 REST API 与自动化发版
+1. **第 1–6 章**：把本地 Agent 从最小可用逐步打磨到生产可用，并扩展 PPT 生成能力
+2. **第 7–9 章**：接入云端部署、外部 REST API 与自动化发版
 
-第 1–7 章每章仅在前一章代码基础上改动一两处，**每章结束时 Agent 均可完整运行**；第 8–10 章不再改 Agent 代码，转为部署与集成：
+第 1–6 章每章仅在前一章代码基础上改动一两处，**每章结束时 Agent 均可完整运行**；第 7–9 章不再改 Agent 代码，转为部署与集成：
 
 | 章 | 引入的能力 | Agent 的能力提升 |
 |---|---|---|
@@ -28,11 +28,10 @@ NexAU 适合以下场景：
 | 3 | 引入 Skills 注入领域知识（每张表一份） | 掌握每张表的业务语义，减少列名猜测 |
 | 4 | 接入 `write_todos` 规划工具 | 多表查询前自动制定执行计划 |
 | 5 | 启用 `LongToolOutput` 中间件 | 自动截断超长结果，避免上下文溢出 |
-| 6 | 切换 LLM Provider 协议 | 同一份 Agent 配置可运行于 OpenAI / Anthropic / Gemini |
-| 7 | 添加 PPT 生成 Skill + 文件写入工具 | Agent 可自动生成数据简报 PPT |
-| 8 | 部署到 NexAU Cloud | 从本地运行迁移至云端托管 |
-| 9 | 外部 REST 调用 Cloud Agent | 通过 HTTP API 发起对话与查询 |
-| 10 | 用 REST 自动化发版 | CI/CD 流水线一键部署新版本 |
+| 6 | 添加 PPT 生成 Skill + 文件写入工具 | Agent 可自动生成数据简报 PPT |
+| 7 | 部署到 NexAU Cloud | 从本地运行迁移至云端托管 |
+| 8 | 外部 REST 调用 Cloud Agent | 通过 HTTP API 发起对话与查询 |
+| 9 | 用 REST 自动化发版 | CI/CD 流水线一键部署新版本 |
 
 ---
 
@@ -64,7 +63,7 @@ NexAU 适合以下场景：
 
 ## 环境准备
 
-前置工作（Python、`uv`、NexAU、`sqlite3`）已在 [开始之前](./00-prerequisites.md) 完成。本章所有命令都在 `nexau-tutorial/` 工作目录下执行：
+前置工作（Python、`uv`、NexAU、`sqlite3`）已在 [开始之前](zh/00-prerequisites.md) 完成。本章所有命令都在 `nexau-tutorial/` 工作目录下执行：
 
 ```bash
 cd nexau-tutorial
@@ -79,10 +78,9 @@ Agent 背后由大模型负责思考、编写 SQL、生成回答。通过 `.env`
 LLM_MODEL=nex-agi/deepseek-v3.1-nex-1
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=sk-...
-LLM_API_TYPE=openai_chat_completion
 ```
 
-将 `LLM_API_KEY` 替换为你自己的密钥。`LLM_BASE_URL` 是模型 API 入口，默认指向 OpenAI 协议端点——只要模型供应方兼容 OpenAI 协议，修改该行即可切换。`LLM_API_TYPE` 指定 NexAU 使用的协议格式，第 6 章会详细介绍所有可选值。
+将 `LLM_API_KEY` 替换为你自己的密钥。`LLM_BASE_URL` 是模型 API 入口，默认指向 OpenAI 协议端点——只要模型供应方兼容 OpenAI 协议，修改该行即可切换。协议类型 `api_type` 已在 `agent.yaml` 中写死为 `openai_chat_completion`，无需在 `.env` 中配置。如需切换到 Anthropic / Gemini 等其他协议，参见附录 [LLM 协议切换](llm-api-types.md)。
 
 ### 准备数据库
 
@@ -101,7 +99,7 @@ sqlite3 enterprise.sqlite ".tables"
 mkdir -p enterprise_data_agent/tools
 ```
 
-> 本章后续命令均从 `nexau-tutorial/` 层执行。`enterprise_data_agent` 并非标准 Python 包（没有 `__init__.py`）。`start.py` 中通过 `sys.path.insert(0, str(HERE.parent))` 将 `nexau-tutorial/` 加入 Python 搜索路径——本章暂未用到该机制（内置工具由 NexAU 自行 import），但从第 2 章起 NexAU 需要通过 `binding: enterprise_data_agent.bindings:execute_sql` 导入自定义工具，届时该行即为必需。
+> 本章后续命令均从 `nexau-tutorial/` 层执行。`enterprise_data_agent` 并非标准 Python 包（没有 `__init__.py`）。`start.py` 中通过 `sys.path.insert(0, str(HERE.parent))` 将 `nexau-tutorial/` 加入 Python 搜索路径——本章暂未用到该机制（内置工具由 NexAU 自行 import），但从第 2 章起 NexAU 需要通过 `binding: tools.execute_sql:execute_sql` 导入自定义工具，届时该行即为必需。
 
 ---
 
@@ -166,9 +164,8 @@ llm_config:
   model: ${env.LLM_MODEL}
   base_url: ${env.LLM_BASE_URL}
   api_key: ${env.LLM_API_KEY}
-  api_type: ${env.LLM_API_TYPE}
+  api_type: openai_chat_completion
   temperature: 0.2
-  max_tokens: 4096
   stream: true
 
 tools:
@@ -179,17 +176,17 @@ tools:
 
 几个值得注意的字段：
 
-**`max_iterations: 20`** —— Agent 内部"思考 → 调用工具 → 获取结果 → 继续思考"的循环最多执行 20 轮，用于防止死循环。随着后续章节引入 Skill 读取、规划工具、多表 join 等能力，单次任务消耗的迭代数会显著增加。**建议根据章节调整该值**：第 1–2 章 `20` 即可；第 3–4 章建议 `40`；第 5–6 章 `40`；第 7 章（PPT 生成）建议 `80`。数值越高越不容易因提前截断而失败，代价是模型失控时等待更久。若嫌逐章调整麻烦，也可从一开始设为 `50`。
+**`max_iterations: 20`** —— Agent 内部"思考 → 调用工具 → 获取结果 → 继续思考"的循环最多执行 20 轮，用于防止死循环。随着后续章节引入 Skill 读取、规划工具、多表 join 等能力，单次任务消耗的迭代数会显著增加。**建议根据章节调整该值**：第 1–2 章 `20` 即可；第 3–4 章建议 `40`；第 5 章 `50`；第 6 章（PPT 生成）建议 `80`。数值越高越不容易因提前截断而失败，代价是模型失控时等待更久。若嫌逐章调整麻烦，也可从一开始设为 `50`。
 
-**`${env.*}`** —— NexAU 在加载 YAML 时会解析这种占位符，从环境变量（或 `.env` 文件）读取值，从而避免 API key 直接出现在配置文件中。
+**`${env.*}`** —— NexAU 在加载 YAML 时会解析这种占位符，从环境变量（或 `.env` 文件）读取值，从而避免 API key 直接出现在配置文件中。Cloud 运行时会自动注入 `LLM_MODEL`、`LLM_BASE_URL`、`LLM_API_KEY` 三个变量，所以这三个字段用 `${env.*}` 即可；其余配置项（如 `api_type`）Cloud 不会注入，需要写死。
 
-**`temperature: 0.2`** —— 温度控制模型回答的随机性，取值范围通常为 0 到 2。值越高，模型越倾向于尝试不常见的词，适合写诗、命名这类需要创造性的场景;值越低，模型越倾向于选择概率最高的词，输出更稳定、更可复现。数据分析场景要求同一个问题每次都生成同一条 SQL，故将其压至 0.2。（注：推理模型 o1 / o3 / gpt-5 等不接受 temperature 参数，第 6 章会删除该字段。）
+**`temperature: 0.2`** —— 温度控制模型回答的随机性，取值范围通常为 0 到 2。值越高，模型越倾向于尝试不常见的词，适合写诗、命名这类需要创造性的场景;值越低，模型越倾向于选择概率最高的词，输出更稳定、更可复现。数据分析场景要求同一个问题每次都生成同一条 SQL，故将其压至 0.2。（注：推理模型 o1 / o3 / gpt-5 等不接受 temperature 参数，切换 Provider 时需删除该字段，详见附录 [LLM 协议切换](llm-api-types.md)。）
 
 **`stream: true`** —— 流式输出。模型边生成边返回 token，而非等整段答案完成后一次性输出。开启后运行时可看到文字逐字出现，体验更接近 ChatGPT。
 
 **`system_prompt_type: file`** —— 告诉 NexAU 如何解释 `system_prompt` 的值。`file` 表示"把该路径当文件读取，将文件内容作为系统提示"；默认值是 `string`，意味着 `./system_prompt.md` 这 18 个字本身会被直接发给模型——文件根本不会被读取。**这个字段是必填的，漏掉它会导致模型收不到任何系统提示，答非所问甚至产生幻觉。**
 
-**`tool_call_mode: structured`** —— 控制 Agent 如何把"我要调用工具"这件事告诉 LLM。`structured` 使用 LLM 提供方原生的 function calling 接口——function calling 指 OpenAI / Anthropic / Gemini 在 API 层面为"模型决定调用某个函数并填入参数"这件事专门开放的接口，模型会返回结构化的 JSON，而不是混在普通文字中让调用方自行解析。另一种模式是通过提示词要求模型"欲调用工具时按某种格式输出"，再用正则匹配——可以运行但不够稳定。后续所有章节均使用 `structured`。
+**`tool_call_mode: structured`** —— 控制 Agent 如何把"我要调用工具"这件事告诉 LLM。`structured` 使用 LLM 提供方原生的 function calling 接口——模型会返回结构化的 JSON，而不是混在普通文字中让调用方自行解析。NexAU 会根据 `api_type` 自动将工具 schema 翻译成对应 Provider 的格式（OpenAI / Anthropic / Gemini），因此同一份 `agent.yaml` 换 Provider 无需改这个字段。
 
 最关键的是 `tools` 块。它只挂载了一个工具——`run_shell_command`：
 
@@ -241,7 +238,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-# 将 nexau-tutorial/ 加入 sys.path，使 `enterprise_data_agent.bindings` 可被 import
+# 将 nexau-tutorial/ 加入 sys.path，使 `tools.execute_sql` 等自定义模块可被 import
 sys.path.insert(0, str(HERE.parent))
 
 from dotenv import load_dotenv
@@ -249,7 +246,7 @@ from dotenv import load_dotenv
 # 先将上一级目录的 .env 加载进环境变量，`LLM_API_KEY` 等会在 agent 启动前就绪
 load_dotenv(HERE.parent / ".env")
 
-# 设置数据库路径，使 bindings.py 不依赖运行时的工作目录
+# 设置数据库路径，使 tools/execute_sql.py 不依赖运行时的工作目录
 os.environ.setdefault("ENTERPRISE_DB_PATH", str(HERE.parent / "enterprise.sqlite"))
 
 from nexau import Agent, AgentConfig  # noqa: E402
@@ -261,7 +258,7 @@ question = " ".join(sys.argv[1:]) or "enterprise.sqlite 里有哪些表？"
 print(agent.run(message=question))
 ```
 
-六件事：将父目录加入 `sys.path`、加载 `.env`、设置数据库路径、从 YAML 加载配置、构造 Agent、执行一次。`sys.path.insert` 确保 NexAU 在解析 `binding: enterprise_data_agent.bindings:execute_sql` 时能找到 `enterprise_data_agent` 包（`uv run` 不会自动将工作目录加入 Python 搜索路径）。`os.environ.setdefault("ENTERPRISE_DB_PATH", ...)` 将数据库的绝对路径写入环境变量，第 2 章的 `bindings.py` 会通过该变量定位数据库文件——无论从哪个目录执行命令都能找到。`load_dotenv()` 必须在 `from nexau import ...` 之前调用，否则 NexAU 读取配置时环境变量仍为空。`agent.run(message=question)` 内部即"LLM 思考 → 工具调用 → 结果回灌 → LLM 继续思考"的循环——何时结束由 LLM 自主决定（认为问题已答完，或达到 `max_iterations` 上限）。
+六件事：将父目录加入 `sys.path`、加载 `.env`、设置数据库路径、从 YAML 加载配置、构造 Agent、执行一次。`sys.path.insert` 确保 NexAU 在解析 `binding: tools.execute_sql:execute_sql` 时能找到 `tools` 包（`uv run` 不会自动将工作目录加入 Python 搜索路径）。`os.environ.setdefault("ENTERPRISE_DB_PATH", ...)` 将数据库的绝对路径写入环境变量，第 2 章的 `tools/execute_sql.py` 会通过该变量定位数据库文件——无论从哪个目录执行命令都能找到。`load_dotenv()` 必须在 `from nexau import ...` 之前调用，否则 NexAU 读取配置时环境变量仍为空。`agent.run(message=question)` 内部即"LLM 思考 → 工具调用 → 结果回灌 → LLM 继续思考"的循环——何时结束由 LLM 自主决定（认为问题已答完，或达到 `max_iterations` 上限）。
 
 ---
 

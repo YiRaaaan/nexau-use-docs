@@ -1,8 +1,8 @@
-# 第 10 章 · 用 REST 自动化发版
+# 第 9 章 · 用 REST 自动化发版
 
 **TL;DR**：建一个 **Personal Access Token**（PAT），用它走 Backend API 的几个端点——建版本、获取预签名 URL（presigned URL，服务端生成的一次性上传地址，客户端无需额外认证即可直接 PUT 文件）、PUT 直传 zip 包、激活。整套发版流程一段 200 行 Python 或一段 GitHub Actions yaml 即可完成。
 
-> **本章假设**你已经走完第 8 章——有 project、有 project_id、知道怎么手动发一个 version。若尚未完成，请先回到[第 8 章](./08-deploy-cloud.md)。
+> **本章假设**你已经走完第 7 章——有 project、有 project_id、知道怎么手动发一个 version。若尚未完成，请先回到[第 7 章](zh/07-deploy-cloud.md)。
 
 ## 最终成果
 
@@ -14,7 +14,7 @@
 
 ## 思路：两种 Key，两个用途
 
-第 8、9 章用的 **AK/SK** 绑 project，只能"调这个 project 的 active version"。它**不能建 project、改 version、改 env vars**——这些是 control plane 操作，需要"用户身份"，AK/SK 是"项目身份"。
+第 7、8 章用的 **AK/SK** 绑 project，只能"调这个 project 的 active version"。它**不能建 project、改 version、改 env vars**——这些是 control plane 操作，需要"用户身份"，AK/SK 是"项目身份"。
 
 control plane 的认证有两种：
 
@@ -121,6 +121,8 @@ def upload_artifact(upload_info: dict, file_path: Path) -> None:
     # 相对 URL 表示走 Backend proxy 上传(不是真正的 S3 预签名),拼一个完整 URL
     if url.startswith("/"):
         url = f"{API_BASE}{url}"
+        # proxy 模式需要带上 PAT 认证
+        headers.setdefault("Authorization", f"Bearer {PAT}")
 
     with file_path.open("rb") as f:
         resp = requests.put(url, data=f, headers=headers, timeout=600)
@@ -273,7 +275,7 @@ jobs:
 |---|---|
 | `NEXAU_API_BASE` | `https://api.nexau.example` |
 | `NEXAU_PAT` | 刚才建的 token |
-| `NEXAU_PROJECT_ID` | 第 8 章记下来的 project UUID |
+| `NEXAU_PROJECT_ID` | 第 7 章记下来的 project UUID |
 
 之后每次 push 到 main 分支，只要改动了 `enterprise_data_agent/` 下的文件，就会自动发一个新版本。**版本号是日期 + git short sha**（比如 `v2026.04.08-a3f9c12`），按日期排序也能跟具体 commit 对上。
 
@@ -316,7 +318,7 @@ POST 请求体：
 
 **渐进检查表**：
 
-| | 第 8 章 | 第 10 章 |
+| | 第 7 章 | 第 9 章 |
 |---|---|---|
 | 怎么建 project | UI 点击 | UI 点击（一次性，后面不变了） |
 | 怎么发 version | UI 拖文件 | `git push` 自动触发 |
@@ -339,16 +341,16 @@ POST 请求体：
 回头看十章做过的事：
 
 ```
-第 1–6 章: 在 shell 里建一个能查数据的智能体,跨四种 LLM 协议
-第 7 章:    给它加一个 PPT 生成技能
-第 8 章:    手动部署到 NexAU Cloud
-第 9 章:    从外部代码用 REST 调它
-第 10 章:   发版完全自动化,接进 CI/CD
+第 1–5 章: 在 shell 里建一个能查数据的智能体
+第 6 章:    给它加一个 PPT 生成技能
+第 7 章:    手动部署到 NexAU Cloud
+第 8 章:    从外部代码用 REST 调它
+第 9 章:    发版完全自动化,接进 CI/CD
 ```
 
 这是一条**完整的 0→1 路径**：从"在终端里 print 一个查询结果"到"一个有版本管理、有 trace、有 CI/CD、能被任何系统调用的产品"。剩下的都是产品迭代——加 Skill、改 prompt、给特定客户调色板——不再需要理解 NexAU 的内部机制。
 
 ## 延伸阅读
 
-- [第 8 章 · 部署到 NexAU Cloud](./08-deploy-cloud.md) —— 获取 project_id 的地方
-- [第 9 章 · 从外部 REST 调用 Cloud Agent](./09-cloud-api.md) —— 跟这一章对照看，理解控制平面 vs 数据平面的分工
+- [第 7 章 · 部署到 NexAU Cloud](zh/07-deploy-cloud.md) —— 获取 project_id 的地方
+- [第 8 章 · 从外部 REST 调用 Cloud Agent](zh/08-cloud-api.md) —— 跟这一章对照看，理解控制平面 vs 数据平面的分工
