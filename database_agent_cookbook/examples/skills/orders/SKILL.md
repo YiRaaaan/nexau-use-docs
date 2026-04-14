@@ -44,7 +44,7 @@ For book details, use `books`.
 SELECT strftime('%Y-%m', order_date) AS month,
        SUM(CAST(total_price AS REAL)) AS revenue
 FROM orders
-WHERE status = '已完成'
+WHERE status != '已取消'
 GROUP BY month
 ORDER BY month;
 ```

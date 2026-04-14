@@ -108,13 +108,15 @@ def execute_sql(
 
         cursor = connection.execute(sql)
         col_names = [d[0] for d in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
+
+        # Use fetchmany instead of fetchall to avoid loading entire
+        # result sets into memory on large tables without LIMIT.
+        batch = cursor.fetchmany(max_rows + 1)
+        truncated = len(batch) > max_rows
+        rows_to_return = batch[:max_rows]
+        total_rows = max_rows + 1 if truncated else len(batch)
 
         duration_ms = int((time.time() - start_time) * 1000)
-
-        total_rows = len(rows)
-        truncated = total_rows > max_rows
-        rows_to_return = rows[:max_rows] if truncated else rows
 
         data: list[dict[str, Any]] = []
         for row in rows_to_return:
@@ -128,8 +130,6 @@ def execute_sql(
                     d[key] = str(value)
             data.append(d)
 
-        command_status = f"SELECT {total_rows}"
-
         warnings: list[str] = []
         if total_rows == 0:
             warnings.append(
@@ -141,13 +141,13 @@ def execute_sql(
             )
         if truncated:
             warnings.append(
-                "Query results were truncated due to row limit. "
-                "Consider adding more specific WHERE clauses or reducing columns."
+                f"Showing {max_rows} rows (more available). "
+                "Consider adding more specific WHERE clauses or LIMIT."
             )
 
         result: dict[str, Any] = {
             "status": "success",
-            "command_status": command_status,
+
             "sql": sql,
             "columns": col_names,
             "data": data,
