@@ -1,0 +1,41 @@
+# ──────────────────────────────────────────────────────────────────────
+# Database Agent 模板 — 适用于任意 SQLite 数据库
+# 使用前：
+#   1. 将 skills/ 下的 SKILL.md 替换为你自己数据库的表描述
+#      （或使用 generate_skills.py 自动生成）
+#   2. 设置环境变量 DB_PATH 指向你的 .sqlite 文件
+#   3. 设置 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY
+# ──────────────────────────────────────────────────────────────────────
+type: agent
+name: database_agent
+description: A general-purpose agent that answers natural-language questions over a SQL database.
+
+system_prompt: ./system_prompt.md
+system_prompt_type: file
+max_iterations: 50
+tool_call_mode: structured
+
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  api_type: openai_chat_completion
+  temperature: 0.2
+  stream: true
+
+tools:
+  # Read-only SQL executor — the primary tool for this agent.
+  - name: execute_sql
+    yaml_path: ./tools/ExecuteSQL.tool.yaml
+    binding: tools.execute_sql:execute_sql
+
+  # Planning scratchpad for multi-table / multi-step queries.
+  - name: write_todos
+    yaml_path: ./tools/TodoWrite.tool.yaml
+    binding: nexau.archs.tool.builtin.session_tools:write_todos
+
+# One Skill per table. Uncomment or add entries after generating Skills.
+# skills:
+#   - ./skills/your_table_1
+#   - ./skills/your_table_2
+#   - ./skills/your_table_3

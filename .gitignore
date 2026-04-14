@@ -15,5 +15,10 @@ skills_table_7/
 .env
 .env.local
 
+# Artifacts
+enterprise_data_agent-*.zip
+database_agent_cookbook/sample.sqlite
+
 # macOS
 .DS_Store
+database_agent_cookbook/sample_bookstore.sqlite
