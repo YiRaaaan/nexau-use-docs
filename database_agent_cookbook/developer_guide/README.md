@@ -40,10 +40,3 @@ nac deploy
 - **对话管理**——多轮对话、上下文维护由框架处理
 - **日志与监控**——由平台提供
 
----
-
-## 相关资源
-
-- **NexAU 完整教程**（含工具开发、框架原理）：[database_agent_cookbook.ipynb](../database_agent_cookbook.ipynb)
-- **Skill 自动生成脚本**：[generate_skills.py](../generate_skills.py) — 从 SQLite 数据库自动生成 SKILL.md 框架
-- **示例数据库创建**：[create_sample_db.py](../create_sample_db.py) — 创建书店示例数据库
