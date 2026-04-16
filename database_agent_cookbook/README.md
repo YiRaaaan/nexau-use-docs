@@ -6,7 +6,7 @@
 
 | 你是谁 | 入口 | 说明 |
 |---|---|---|
-| **开发商**（使用 NexAU 平台构建 Agent） | [**开发者指南**](./developer_guide/) | 只需写 Skill + Prompt，无需写代码。中文，纯 Markdown |
+| **开发商**（使用 NexAU 平台构建 Agent） | [**开发者指南**](./developer_guide/) | 写 Skill + Prompt 构建 Agent。中文，纯 Markdown |
 | **NexAU 框架开发者**（学习框架原理） | [**Tutorial Notebook**](./database_agent_cookbook.ipynb) [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YiRaaaan/nexau-use-docs/blob/main/database_agent_cookbook/database_agent_cookbook.ipynb) | 含工具开发、Agent API、完整 Python 代码 |
 
 ## Components

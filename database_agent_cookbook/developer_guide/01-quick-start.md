@@ -20,7 +20,7 @@ my_agent/
         └── SKILL.md    # 表的领域知识
 ```
 
-没有 Python 代码、没有工具实现、没有 middleware。SQL 查询工具由平台内置提供。
+SQL 查询工具由平台内置提供。
 
 ---
 

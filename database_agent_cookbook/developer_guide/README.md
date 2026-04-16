@@ -1,6 +1,6 @@
 # 数据库 Agent 开发者指南
 
-> **写 Skill + 写 Prompt = 一个能用的数据库 Agent，不需要写代码。**
+> **写 Skill + 写 Prompt = 一个能用的数据库 Agent。**
 
 本指南面向使用 NexAU 平台构建数据库 Agent 的开发者。你只需要编写 SKILL.md（领域知识）和 System Prompt（工作流），平台处理其余一切——SQL 工具、Skill 路由、对话管理。
 
@@ -33,13 +33,12 @@ nac deploy
 
 ## 你不需要关心的事
 
-以下内容由平台处理，无需开发者编写：
+以下内容由平台处理：
 
-- **SQL 工具实现**——`execute_sql` 是内置工具，自动可用
-- **Skill 路由机制**——框架根据 `description` 自动决定何时加载 Skill
+- **SQL 工具**——`execute_sql` 是内置工具，自动可用
+- **Skill 路由**——框架根据 `description` 自动决定何时加载 Skill
 - **对话管理**——多轮对话、上下文维护由框架处理
-- **Middleware / Tracer**——日志、监控等由平台提供
-- **Python 入口文件**——无需编写 `start.py`
+- **日志与监控**——由平台提供
 
 ---
 
