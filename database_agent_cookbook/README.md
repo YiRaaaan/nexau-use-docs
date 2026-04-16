@@ -1,10 +1,13 @@
 # Database Agent Cookbook
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YiRaaaan/nexau-use-docs/blob/main/database_agent_cookbook/database_agent_cookbook.ipynb)
-
 > From any SQLite database to a natural-language-queryable NexAU Agent in 5 minutes.
 
-For a detailed walkthrough of **why** each component is designed the way it is, see the [Jupyter Notebook](./database_agent_cookbook.ipynb).
+## 两个入口，选择适合你的
+
+| 你是谁 | 入口 | 说明 |
+|---|---|---|
+| **开发商**（使用 NexAU 平台构建 Agent） | [**开发者指南**](./developer_guide/) | 只需写 Skill + Prompt，无需写代码。中文，纯 Markdown |
+| **NexAU 框架开发者**（学习框架原理） | [**Tutorial Notebook**](./database_agent_cookbook.ipynb) [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/YiRaaaan/nexau-use-docs/blob/main/database_agent_cookbook/database_agent_cookbook.ipynb) | 含工具开发、Agent API、完整 Python 代码 |
 
 ## Components
 
@@ -21,23 +24,32 @@ For a detailed walkthrough of **why** each component is designed the way it is, 
 ```
 database_agent_cookbook/
 ├── README.md                           <- you are here
-├── database_agent_cookbook.ipynb        <- detailed tutorial notebook
+├── database_agent_cookbook.ipynb        <- tutorial notebook (NexAU 框架开发者)
 ├── create_sample_db.py                 # Generate sample bookstore database
 ├── generate_skills.py                  # Auto-generate Skills from any SQLite
 ├── sample.sqlite                       # Sample DB (created by create_sample_db.py)
 │
-├── template/                           # Copy-and-use agent template
+├── developer_guide/                    # 【开发商指南】写 Skill + Prompt 即可
+│   ├── README.md                       # 入口 & 概览
+│   ├── 01-quick-start.md              # 5 分钟跑起来
+│   ├── 02-skill-writing.md            # 核心：如何写 SKILL.md
+│   ├── 03-system-prompt.md            # 如何写系统提示词
+│   ├── 04-agent-config.md             # agent.yaml + nexau.json 参考
+│   └── examples/
+│       └── bookstore_agent/           # 可直接复制使用的完整示例
+│
+├── template/                           # Agent 模板（含 Python 工具实现）
 │   ├── agent.yaml
 │   ├── nexau.json
 │   ├── system_prompt.md
 │   ├── start.py
 │   └── tools/
-│       ├── execute_sql.py              # SQL tool implementation
-│       ├── ExecuteSQL.tool.yaml        # SQL tool schema
-│       └── TodoWrite.tool.yaml         # Planning tool schema
+│       ├── execute_sql.py
+│       ├── ExecuteSQL.tool.yaml
+│       └── TodoWrite.tool.yaml
 │
 ├── skills_template/
-│   └── SKILL.md.template              # SKILL.md writing template
+│   └── SKILL.md.template
 │
 └── examples/
     └── skills/                         # Polished Skills for the sample database

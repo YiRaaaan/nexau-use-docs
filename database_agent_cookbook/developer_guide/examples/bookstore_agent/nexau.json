@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "bookstore_agent": "agent.yaml"
+  },
+  "excluded": [
+    ".nexau/",
+    ".env",
+    "__pycache__/"
+  ]
+}

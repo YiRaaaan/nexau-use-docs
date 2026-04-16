@@ -1,0 +1,32 @@
+# ──────────────────────────────────────────────────────────────────────
+# 书店数据库 Agent — 开发商配置示例
+# 使用前：
+#   1. 将 skills/ 下的 SKILL.md 替换为你自己数据库的表描述
+#   2. 设置环境变量 LLM_MODEL / LLM_BASE_URL / LLM_API_KEY
+#   3. nac deploy 部署
+# ──────────────────────────────────────────────────────────────────────
+type: agent
+name: bookstore_agent
+description: 回答关于书店数据库的自然语言问题。
+
+system_prompt: ./system_prompt.md
+system_prompt_type: file
+max_iterations: 50
+tool_call_mode: structured
+
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  api_type: openai_chat_completion
+  temperature: 0.2
+  stream: true
+
+# SQL 查询工具由平台内置提供，无需在此声明。
+# 如需额外工具，在此添加 tools: 段。
+
+# 每张表一个 Skill
+skills:
+  - ./skills/customers
+  - ./skills/books
+  - ./skills/orders
