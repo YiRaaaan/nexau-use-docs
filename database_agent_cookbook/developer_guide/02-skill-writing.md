@@ -195,28 +195,266 @@ description: >-
 
 ---
 
-## D. 数据库场景的 Skill 编写要点
+## D. 数据库场景：用 Skill 提升问答准确率
 
-### 整理每张表的信息
+数据库 Agent 的准确率取决于模型能否写出**正确的 SQL**。模型犯错通常不是因为"不会写 SQL"，而是因为**不了解这个数据库的具体情况**——字段类型、业务含义、数据分布、表间关系。Skill 的作用就是补上这些信息。
 
-编写 Skill 前，先回答三个问题：
+本节系统讲解如何针对数据库场景编写 Skill，使 Agent 的问答准确率最大化。
 
-1. **这张表是什么**——一句话描述表的内容
-2. **什么问题需要用到它**——典型的用户问题
-3. **有哪些坑**——类型不一致、枚举值、需要排除的状态
+### D.1 编写前：审计你的数据库
 
-### 常见 Gotchas 模式
+在动手写 SKILL.md 之前，先对数据库做一次"审计"，逐表回答以下问题：
 
-在数据库 Agent 场景中，以下几类"坑"反复出现：
-
-| 模式 | 说明 | SKILL.md 中如何写 |
+| 审计项 | 问题 | 对应 Skill 章节 |
 |---|---|---|
-| **TEXT 当数字存** | `price`、`register_capital` 等字段用 TEXT 存储数字。直接 `ORDER BY` 会按字符串排序（"99" 排在 "1000" 前面） | Schema 列紧邻标注 `**TEXT**, use CAST(... AS REAL)`；Gotchas 再次强调 |
-| **状态过滤** | 聚合查询需排除某些状态（如 `已取消` 的订单不应计入收入） | Gotchas 明确写 `Exclude status = '已取消' from revenue calculations` |
-| **预计算字段** | `total_price` 已是 `quantity × unit_price` 的结果，不需要也不应该重新计算 | Gotchas 写明 `total_price is pre-computed, don't re-multiply` |
-| **Join 关系** | 跨表查询需要知道 join key | Schema 中用 FK 标注，description 中也提到 `Join to X via column` |
-| **枚举值中文** | `genre` 的值是 `文学`、`科幻` 而非 `Literature`、`Sci-Fi` | Common values 列出所有可能值 |
-| **日期格式** | 日期存为 TEXT（如 `2025-01-15`），需要 `date()` 或 `strftime()` 处理 | Schema 标注格式，Gotchas 说明用法 |
+| **表的业务含义** | 这张表存的是什么？一行代表什么？ | 标题 + 开头描述 |
+| **主键和外键** | 表之间怎么 join？ | Schema（PK/FK 标注）+ description |
+| **类型陷阱** | 哪些列的存储类型和业务含义不匹配？（TEXT 存数字、TEXT 存日期） | Schema（紧邻标注）+ Gotchas |
+| **枚举值** | 哪些列只有有限的几个取值？取值是中文还是英文？ | Common values |
+| **业务规则** | 聚合时需要排除哪些状态？哪些字段是预计算的？ | Gotchas |
+| **常见查询模式** | 用户最常问什么？正确的 SQL 怎么写？ | When to use + Example queries |
+| **易混淆的表** | 哪些表名/列名容易被混淆？ | description（负面路由） |
+
+**每回答一个问题，就往 SKILL.md 里加一条信息。** 审计做完，Skill 也基本写完了。
+
+### D.2 类型陷阱：准确率的第一杀手
+
+数据库中最常见的准确率问题是**类型不匹配**——字段的存储类型和业务含义不一致。
+
+#### TEXT 存数字
+
+这是出现频率最高的陷阱。很多数据库把金额、数量、比例等数值用 TEXT 类型存储：
+
+```
+price = "168.00"     -- TEXT，不是 REAL
+register_capital = "5000"  -- TEXT，不是 INTEGER
+```
+
+**不写 Skill 时的后果**：
+
+用户问"价格最高的 5 本书"，模型写出：
+
+```sql
+SELECT title, price FROM books ORDER BY price DESC LIMIT 5;
+```
+
+这条 SQL 按**字符串排序**：`"99.00" > "89.00" > "79.00" > "68.00" > "55.00"`——真正最贵的 `"168.00"` 排在后面，因为字符 `"1"` 小于 `"5"`。结果完全错误，但看起来像是对的，很难被发现。
+
+**Skill 如何解决**：
+
+在 Schema 表中紧邻列名标注：
+
+```markdown
+| `price` | TEXT | 价格（元）— **TEXT not numeric**, use `CAST(price AS REAL)` |
+```
+
+在 Example queries 中展示正确写法：
+
+```sql
+SELECT title, CAST(price AS REAL) AS price_yuan
+FROM books
+ORDER BY price_yuan DESC
+LIMIT 5;
+```
+
+在 Gotchas 中再次强调：
+
+```markdown
+- `price` is **TEXT** — always `CAST(price AS REAL)` for numeric operations.
+  Direct `ORDER BY price` gives wrong results (string sort: "99" > "168").
+```
+
+**三处提示的原因**：Schema 表让模型在"扫一眼"时就注意到类型；Example queries 提供正确的 SQL 模板；Gotchas 解释为什么错以及错在哪里。三层信息互相加强，确保模型不会遗漏。
+
+#### TEXT 存日期
+
+日期存为 TEXT（如 `"2025-01-15"`）时，模型可能不知道如何做日期运算：
+
+```markdown
+## Gotchas
+
+- `order_date` is TEXT in `YYYY-MM-DD` format, not a DATE type.
+  - Filter by month: `WHERE order_date LIKE '2025-03%'` or
+    `WHERE strftime('%Y-%m', order_date) = '2025-03'`
+  - Filter by range: `WHERE order_date BETWEEN '2025-01-01' AND '2025-03-31'`
+  - Group by month: `strftime('%Y-%m', order_date)`
+```
+
+提供多种常用写法，模型可以根据具体场景选择。
+
+#### 隐式的枚举等级
+
+`member_level` 存的是 `普通`/`银卡`/`金卡`/`钻石`，人类知道这是有等级的，但模型不知道。用户问"金卡及以上的会员"时，模型可能只查 `= '金卡'` 而遗漏 `钻石`。
+
+```markdown
+## Gotchas
+
+- `member_level` has an implicit hierarchy: `普通` < `银卡` < `金卡` < `钻石`.
+  There is no numeric rank column.
+  - "金卡及以上": `WHERE member_level IN ('金卡', '钻石')`
+  - For ordering by level: use `CASE WHEN member_level = '钻石' THEN 4
+    WHEN member_level = '金卡' THEN 3 WHEN member_level = '银卡' THEN 2
+    ELSE 1 END`
+```
+
+### D.3 业务规则：Gotchas 的核心
+
+类型陷阱靠看 Schema 就能发现，但**业务规则**只有了解业务的人才知道。这正是 Skill 不可替代的价值。
+
+#### 状态过滤
+
+几乎所有有"状态"字段的表都需要写明哪些状态应在聚合中排除：
+
+```markdown
+## Gotchas
+
+- `status` = `已取消` should be **excluded** from:
+  - Revenue calculations (`SUM(total_price)`)
+  - Order count statistics (`COUNT(*)`)
+  - Customer purchase history
+- Only include `已取消` when the user explicitly asks about cancellations.
+```
+
+不写这条，模型计算"2025 年 3 月总收入"时会把已取消的订单也算进去，金额偏高。用户不会意识到结果有误，因为模型会自信地给出一个看似合理的数字。
+
+#### 预计算字段
+
+```markdown
+## Gotchas
+
+- `total_price` is **pre-computed** (= quantity × unit price at order time).
+  Do NOT re-calculate as `quantity * books.price` because:
+  - Unit price may have changed since the order was placed
+  - Discounts/promotions are already factored into `total_price`
+  - Re-multiplication will produce incorrect results
+```
+
+#### 业务术语映射
+
+用户说的"收入"、"销售额"、"营业额"可能都指同一个计算；"客单价"是总金额除以客户数而非订单数。这类映射需要在 Skill 中说明：
+
+```markdown
+## Gotchas
+
+- "收入"/"销售额"/"营业额" = `SUM(CAST(total_price AS REAL)) WHERE status != '已取消'`
+- "客单价" = total revenue / number of unique customers (not order count)
+- "复购率" = customers with 2+ orders / total customers
+```
+
+### D.4 跨表查询：用 description 和 Schema 引导 Join
+
+用户的问题往往涉及多张表："买了科幻书的客户有哪些？"需要 join `orders`、`books`、`customers`。模型能否写出正确的 join，取决于 Skill 中是否清楚标注了表间关系。
+
+#### 在 description 中标注 join 关系
+
+```yaml
+# orders/SKILL.md
+description: >-
+  Use this skill whenever the user asks about orders, purchases, sales, or
+  transaction history. Join to customers via customer_id and to books via
+  book_id.
+```
+
+`Join to customers via customer_id` 这句话同时告诉模型两件事：(1) orders 表和 customers 表有关联，(2) join key 是 `customer_id`。
+
+#### 在 Schema 中标注 FK
+
+```markdown
+| `customer_id` | INTEGER FK | → `customers.id` |
+| `book_id`     | INTEGER FK | → `books.id` |
+```
+
+箭头写法 `→ customers.id` 比纯文字"外键关联到 customers 表"更直观。
+
+#### 在 Example queries 中提供 join 示例
+
+```sql
+-- "哪个客户消费最多？"需要 join orders + customers
+SELECT c.name, COUNT(*) AS order_count,
+       SUM(CAST(o.total_price AS REAL)) AS total_spent
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+WHERE o.status != '已取消'
+GROUP BY c.id
+ORDER BY total_spent DESC
+LIMIT 5;
+```
+
+**关键**：join 示例中要同时展示正确的 join 条件和业务过滤条件（`status != '已取消'`）。模型会模仿这个模式来写新的 join 查询。
+
+#### 用"跨表引用"防止 Skill 孤立
+
+在 orders 的 Skill 中提醒模型：
+
+```markdown
+**This table is for transactional data.** For customer details (name, city,
+member_level), use `customers`. For book details (title, author, genre),
+use `books`.
+```
+
+这告诉模型：如果用户问的信息不在 orders 表里（比如"客户来自哪个城市"），需要读取另一个 Skill 并做 join，而不是在 orders 表里找一个不存在的列。
+
+### D.5 Example queries 的选择策略
+
+Example queries 是模型编写 SQL 的直接模板。选择哪些查询作为示例，直接影响准确率。
+
+#### 选择原则
+
+1. **覆盖最常见的查询模式**——聚合（SUM/COUNT/AVG）、排序（ORDER BY）、分组（GROUP BY）、筛选（WHERE）、join
+2. **每个示例至少展示一个"坑"的正确处理方式**——CAST、状态过滤、日期处理
+3. **选择用户真的会问的问题**——不要写没人会问的查询
+
+#### 示例数量
+
+- 每张表 2-4 个示例为宜
+- 太少（0-1 个）：模型缺少 few-shot 模板，靠猜测编写 SQL
+- 太多（5+ 个）：Skill 正文过长，增加 token 消耗，且模型可能忽略后面的示例
+
+#### 好示例 vs 差示例
+
+| 好示例 | 差示例 |
+|---|---|
+| 涉及类型转换的聚合查询（展示 CAST 的正确用法） | 简单的 `SELECT * FROM table LIMIT 10` |
+| 带 WHERE 过滤的分组统计（展示状态过滤 + GROUP BY） | 不带 WHERE 的全表查询 |
+| 多表 join 查询（展示 join key + 别名用法） | 单表单列查询 |
+| 日期范围查询（展示 strftime 用法） | 不涉及任何"坑"的查询 |
+
+### D.6 诊断与迭代：Skill 写完后怎么验证
+
+写完 Skill 不代表结束。用以下方法验证和改进：
+
+#### 用 "When to use" 中的问题测试
+
+每个 Skill 的 "When to use" 列出了 3-5 个典型问题。把这些问题逐一输入 Agent，检查：
+
+1. 模型是否读取了正确的 Skill？（如果没读取，说明 description 路由不够精准）
+2. SQL 是否正确？（如果类型处理错误，说明 Schema/Gotchas 描述不够醒目）
+3. 结果是否符合预期？（如果结果偏差，检查业务规则是否写全了）
+
+#### 测试容易出错的问题
+
+除了典型问题，刻意测试边界情况：
+
+- 涉及 TEXT 数字列的排序/聚合："价格最高的书"、"总收入是多少"
+- 需要排除特定状态的查询："3 月的收入"（是否排除了已取消订单）
+- 跨表查询："北京的客户买了哪些书"（需要三表 join）
+- 涉及隐式等级的查询："金卡及以上的会员"（是否包含了钻石）
+- 模糊表述的查询："销量最好的书"（是按订单数还是按数量？）
+
+#### 根据错误迭代 Skill
+
+每次 Agent 回答错误，分析根因并更新 Skill：
+
+| Agent 的错误 | 根因 | Skill 如何修改 |
+|---|---|---|
+| 没有读取该 Skill | description 不够精准，缺少关键词 | 在 description 中加入用户使用的关键词 |
+| 列名写错 | Schema 不完整或不够醒目 | 补全列名，加粗关键列 |
+| 类型处理错误 | Gotchas 提示不够强 | Schema 标注 + Gotchas + Example queries 三处同时加提示 |
+| 漏排除某状态 | 业务规则没写 | 在 Gotchas 中加入过滤规则 |
+| Join 写错 | FK 关系不清楚 | Schema 标注 FK，description 加 join 说明 |
+| 业务术语理解错 | 缺少术语映射 | 在 Gotchas 中加入"X = Y"的映射 |
+
+**Skill 是活文档**——随着你发现更多问题，持续补充 Gotchas 和 Example queries。每修复一个错误就加一条对应的提示，Agent 的准确率会逐步提升。
 
 ---
 
